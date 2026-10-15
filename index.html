@@ -299,6 +299,13 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
 .fichabox{background:var(--accent-soft);border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:14px}
 .fichamsg{margin-top:8px;font-size:13.5px}
 .fichawarn{margin:6px 0 0;padding-left:18px;color:var(--warn)}
+.pfbulk{background:var(--surface-2);border-radius:10px;padding:10px 14px;margin-top:14px}
+.pfbulk summary{cursor:pointer;font-weight:600;color:var(--accent)}
+.pfbulk textarea{font-family:var(--f-mono);font-size:13px}
+.pinsheet{background:var(--warn-soft);border-radius:10px;padding:14px;margin-top:14px;font-size:14px}
+.pintable{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--surface)}
+.pintable th,.pintable td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+.pintable .pinc{font-family:var(--f-mono);font-size:16px;font-weight:700;letter-spacing:.15em}
 .linkbtn{background:none;border:0;color:var(--head-ink);text-decoration:underline;cursor:pointer;padding:0;font-size:12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion: no-preference){.drawer{animation:slide .22s ease-out}@keyframes slide{from{transform:translateX(30px);opacity:.6}}}
@@ -454,7 +461,14 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
       <p class="lead" id="pfIntro"></p>
       <ul class="people pflist" id="pfList"></ul>
       <form id="pfForm" style="margin-top:16px" autocomplete="off">
-        <div class="eyebrow" style="margin-bottom:8px">Nuevo perfil</div>
+        <div id="pfPins" hidden></div>
+        <details class="pfbulk" id="pfBulkBox">
+          <summary>Crear varios perfiles a la vez</summary>
+          <p class="muted" style="font-size:13px;margin:8px 0">Una persona por línea: <strong>Nombre; Cargo; Tipo; Curso</strong>. Tipo: Administrador, Convivencia, Dirección o Profesor. El curso solo para profesores jefe (ej.: 7° Básico A). Los PIN se generan al azar y se muestran una sola vez.</p>
+          <textarea id="pfBulk" rows="6" spellcheck="false" placeholder="Ej.: Pedro Muñoz; Profesor jefe; Profesor; 7° Básico A"></textarea>
+          <div class="row" style="margin-top:8px;align-items:center"><button class="btn primary sm" type="button" id="pfBulkBtn">Crear perfiles</button><span class="err" id="pfBulkMsg" role="alert"></span></div>
+        </details>
+        <div class="eyebrow" style="margin:16px 0 8px">Nuevo perfil (uno a la vez)</div>
         <div class="grid g3">
           <label class="f">Nombre<input type="text" id="pfNombre" placeholder="Ej.: Ana Soto"></label>
           <label class="f">Cargo<input type="text" id="pfCargo" placeholder="Ej.: Psicóloga Escolar"></label>
@@ -811,6 +825,7 @@ async function guardarPerfiles(lista){
   return saveConfig(cfg);
 }
 function renderPerfiles(){
+  const bx=$("#pfBulk"); if(bx && !bx.value.trim()){ const sug=sugerenciaBulk(); bx.value=sug; if(sug) $("#pfBulkBox").open=true; }
   const ps=perfilesLista().slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
   $("#pfIntro").textContent = ps.length ? "Cada persona entra eligiendo su perfil y escribiendo su PIN. Lo que registre queda con su nombre." : "Aún no hay perfiles: cualquiera con el enlace puede entrar escribiendo su nombre. Cree primero su propio perfil de Administrador.";
   $("#pfList").innerHTML = ps.length ? ps.map(p=>'<li data-row="'+esc(p.id)+'"><span><strong>'+esc(p.nombre)+'</strong>'+(p.cargo?' · '+esc(p.cargo):'')+'<span class="hsub">'+esc(ROLES_PERFIL[p.rol]?ROLES_PERFIL[p.rol].l:p.rol)+(cursoPerfil(p)?' · '+esc(cursoPerfil(p)):'')+(PERFIL&&PERFIL.id===p.id?' · (usted)':'')+'</span></span>'+
@@ -835,6 +850,60 @@ function renderPerfiles(){
       if(await guardarPerfiles(lista)){ toast("PIN actualizado"); renderPerfiles(); }
     };
   });
+}
+/* ---------- Crear varios perfiles a la vez ---------- */
+// Equipo del colegio. Los PIN NO van aquí: se generan al azar al crear los perfiles.
+const EQUIPO_SUGERIDO = [
+  ["Administrador","","Administrador"],
+  ["Carolina","Encargada de Convivencia Escolar","Convivencia"],
+  ["Camila","Psicóloga de Convivencia Escolar","Convivencia"],
+  ["Madame Isabel","Directora","Dirección"],
+  ["Madame Claudia","Subdirectora","Dirección"]
+];
+function rolDeTexto(v){ const k=nkey(v); if(/^admin/.test(k)) return "admin"; if(/^conviv|^psico|^encarg/.test(k)) return "convivencia"; if(/^direc|^subdir|^rector/.test(k)) return "direccion"; if(/^prof|^jefe|^docen/.test(k)) return "profesor"; return ""; }
+function pinAzar(){ const a=new Uint32Array(1); crypto.getRandomValues(a); return String(1000+(a[0]%9000)); }
+function sugerenciaBulk(){
+  const ya=new Set(perfilesLista().map(p=>nkey(p.nombre))), hayAdmin=perfilesLista().some(p=>p.rol==="admin");
+  return EQUIPO_SUGERIDO.filter(r=>!ya.has(nkey(r[0])) && !(r[2]==="Administrador" && hayAdmin)).map(r=>r.join("; ")).join("\n");
+}
+async function crearPerfilesBulk(){
+  const msg=t=>{ $("#pfBulkMsg").textContent=t||""; };
+  const lineas=$("#pfBulk").value.split(/\n/).map(l=>l.trim()).filter(Boolean);
+  if(!lineas.length) return msg("Escriba al menos una línea.");
+  const nuevos=[], errores=[], ya=new Set(perfilesLista().map(p=>nkey(p.nombre)));
+  lineas.forEach((l,i)=>{
+    const c=l.split(/\s*[;\t]\s*/); const nombre=(c[0]||"").trim(), cargo=(c[1]||"").trim(), rol=rolDeTexto(c[2]||"");
+    if(nombre.length<2) return errores.push("Línea "+(i+1)+": falta el nombre.");
+    if(!rol) return errores.push("Línea "+(i+1)+" ("+nombre+"): el tipo debe ser Administrador, Convivencia, Dirección o Profesor.");
+    if(ya.has(nkey(nombre))) return errores.push("Línea "+(i+1)+": ya existe un perfil «"+nombre+"».");
+    let nivel="", letra="";
+    if(rol==="profesor"){ const cu=fichaCurso(c[3]||""); nivel=cu.nivel; letra=(c[4]||cu.letra||"").trim().toUpperCase(); if(!nivel) return errores.push("Línea "+(i+1)+" ("+nombre+"): falta o no se reconoce el curso."); }
+    ya.add(nkey(nombre)); nuevos.push({nombre,cargo,rol,nivel,letra});
+  });
+  if(errores.length) return msg(errores.join(" "));
+  const primero=!hayPerfiles();
+  if(primero && !nuevos.some(n=>n.rol==="admin")) return msg("El primer perfil debe ser de Administrador. Agregue una línea: Administrador; ; Administrador");
+  const hoja=[]; const lista=perfilesLista().slice();
+  for(const n of nuevos){ const id="p"+Date.now().toString(36)+Math.random().toString(36).slice(2,6); const pin=pinAzar();
+    lista.push({id, nombre:n.nombre, cargo:n.cargo, rol:n.rol, nivel:n.nivel, letra:n.letra, pinHash:await hashPin(id,pin), creado:today()});
+    hoja.push({id, nombre:n.nombre, cargo:n.cargo, rol:n.rol, curso:n.rol==="profesor"?cursoLabel(n.nivel,n.letra):"", pin}); }
+  if(!(await guardarPerfiles(lista))) return msg("No se pudieron guardar los perfiles.");
+  msg(""); $("#pfBulk").value="";
+  if(primero){ const a=lista.find(p=>p.rol==="admin"); iniciarPerfil(a,true); }
+  mostrarHojaPins(hoja); renderPerfiles(); toast(hoja.length+(hoja.length===1?" perfil creado":" perfiles creados"));
+}
+function mostrarHojaPins(hoja){
+  const filas=hoja.map(h=>'<tr><td>'+esc(h.nombre)+'</td><td>'+esc(h.cargo||"")+'</td><td>'+esc((ROLES_PERFIL[h.rol]||{}).l||"")+(h.curso?' · '+esc(h.curso):'')+'</td><td class="pinc">'+esc(h.pin)+'</td></tr>').join("");
+  $("#pfPins").hidden=false;
+  $("#pfPins").innerHTML='<div class="pinsheet"><strong>Anote o descargue estos PIN ahora.</strong> Por seguridad no se vuelven a mostrar: la plataforma solo guarda una versión cifrada. Entregue a cada persona el suyo. Si alguien lo pierde, use «Cambiar PIN».'+
+    '<div class="tw" style="margin-top:10px;overflow-x:auto"><table class="pintable"><thead><tr><th>Nombre</th><th>Cargo</th><th>Perfil</th><th>PIN</th></tr></thead><tbody>'+filas+'</tbody></table></div>'+
+    '<div class="row" style="margin-top:10px"><button class="btn sm" id="pfPinsDl" type="button">Descargar lista de PIN</button><button class="btn sm" id="pfPinsClose" type="button">Ya los anoté, ocultar</button></div></div>';
+  $("#pfPinsDl").hidden=!canDL();
+  $("#pfPinsDl").onclick=async()=>{
+    const csv="﻿"+[["Nombre","Cargo","Perfil","Curso","PIN"]].concat(hoja.map(h=>[h.nombre,h.cargo,(ROLES_PERFIL[h.rol]||{}).l||"",h.curso,h.pin])).map(r=>r.map(x=>'"'+String(x||"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
+    try{ await saveFile("PIN perfiles convivencia "+today()+".csv", csv, "text/csv;charset=utf-8"); }catch(e){}
+  };
+  $("#pfPinsClose").onclick=()=>{ $("#pfPins").hidden=true; $("#pfPins").innerHTML=""; };
 }
 function syncPfCurso(){ $("#pfCursoWrap").hidden = $("#pfRol").value!=="profesor"; $("#pfRolDesc").textContent = (ROLES_PERFIL[$("#pfRol").value]||{}).d||""; }
 
@@ -1000,7 +1069,8 @@ function renderHeader(){
   $("#demoBanner").hidden = !state.demo;
   const ab=$("#autorBtn");
   if(hayPerfiles()){
-    ab.innerHTML = PERFIL ? esc(PERFIL.nombre)+' <span class="al">· '+esc((ROLES_PERFIL[PERFIL.rol]||{}).l||"")+'</span> <span class="al">· Salir</span>' : 'Ingresar';
+    const rl=PERFIL?((ROLES_PERFIL[PERFIL.rol]||{}).l||""):"";
+    ab.innerHTML = PERFIL ? esc(PERFIL.nombre)+(nkey(rl)!==nkey(PERFIL.nombre)?' <span class="al">· '+esc(rl)+'</span>':'')+' <span class="al">· Salir</span>' : 'Ingresar';
     ab.classList.toggle("empty", !PERFIL); ab.title = PERFIL ? "Cerrar sesión o cambiar de perfil" : "Elegir perfil";
   } else {
     ab.innerHTML = ME ? '<span class="al">Registra</span> '+esc(ME)+' <span aria-hidden="true">✎</span>' : '¿Quién registra? <span aria-hidden="true">✎</span>';
@@ -1084,7 +1154,7 @@ function chipBtn(k,label){ return '<button class="chip '+k+'" data-k="'+k+'" ari
 /* ---------- Formulario de caso ---------- */
 function nivelOptions(sel, withBlank){ return (withBlank?'<option value="">—</option>':'')+NIVELES.map(n=>'<option value="'+n.c+'"'+(sel===n.c?" selected":"")+'>'+esc(n.l)+'</option>').join(""); }
 function optList(arr,sel){ return arr.map(v=>'<option'+(v===sel?" selected":"")+'>'+esc(v)+'</option>').join(""); }
-function encargadosList(){ return [...new Set(EQUIPO.concat(state.casos.concat(state.demo?state.demoCasos:[]).map(c=>c.encargado).filter(Boolean)))]; }
+function encargadosList(){ return [...new Set(perfilesLista().filter(p=>p.rol==="convivencia"||(p.rol==="admin"&&p.cargo)).map(p=>p.nombre+(p.cargo?", "+p.cargo:"")).concat(EQUIPO).concat(state.casos.concat(state.demo?state.demoCasos:[]).map(c=>c.encargado).filter(Boolean)))]; }
 
 function renderCaseForm(host, caso, onDone, prefill){
   const edit=!!caso;
@@ -1800,6 +1870,7 @@ $("#repDl").onclick=descargarInforme;
 /* ---------- Ajustes ---------- */
 $("#autorBtn").onclick=()=>{ if(hayPerfiles()){ if(PERFIL) cerrarSesion(); else elegirPerfil(); } else pedirAutor(); };
 $("#pfRol").addEventListener("change",syncPfCurso);
+$("#pfBulkBtn").onclick=crearPerfilesBulk;
 $("#pfNivel").innerHTML=nivelOptions("",true);
 $("#pfForm").addEventListener("submit", async ev=>{
   ev.preventDefault();
