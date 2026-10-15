@@ -287,6 +287,15 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
 .gate-first{font-size:14px;border-top:1px solid var(--line);padding-top:12px}
 .gate-first summary{cursor:pointer;font-weight:600;color:var(--accent)}
 .gate-first p{margin:8px 0}
+.gate.soft.solid{background:var(--head-bg)}
+.plist{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto}
+.pitem{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;cursor:pointer;font-size:14px}
+.pitem span{font-size:12.5px;color:var(--muted)}
+.pitem:hover,.pitem:focus-visible{border-color:var(--accent);background:var(--accent-soft)}
+.pchk{display:flex;gap:8px;align-items:center;font-size:13.5px}
+.pchk input{width:18px;height:18px}
+.pflist li{align-items:center}
+.pf-act{display:flex;gap:6px;flex-wrap:wrap}
 .linkbtn{background:none;border:0;color:var(--head-ink);text-decoration:underline;cursor:pointer;padding:0;font-size:12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion: no-preference){.drawer{animation:slide .22s ease-out}@keyframes slide{from{transform:translateX(30px);opacity:.6}}}
@@ -423,6 +432,30 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
         <label class="f">Repita la nueva clave<input type="password" id="cfgClave2" autocomplete="new-password"></label>
       </div>
       <p class="muted" id="cfgClaveAviso" style="margin:10px 0 0;font-size:13px"></p>
+    </div>
+    <div class="panel">
+      <h2>Perfiles</h2>
+      <p class="lead" id="pfIntro"></p>
+      <ul class="people pflist" id="pfList"></ul>
+      <form id="pfForm" style="margin-top:16px" autocomplete="off">
+        <div class="eyebrow" style="margin-bottom:8px">Nuevo perfil</div>
+        <div class="grid g3">
+          <label class="f">Nombre<input type="text" id="pfNombre" placeholder="Ej.: Ana Soto"></label>
+          <label class="f">Cargo<input type="text" id="pfCargo" placeholder="Ej.: Psicóloga Escolar"></label>
+          <label class="f">Tipo de perfil<select id="pfRol"><option value="admin">Administrador</option><option value="convivencia" selected>Equipo de Convivencia</option><option value="direccion">Dirección</option><option value="profesor">Profesor/a jefe</option></select></label>
+        </div>
+        <p class="muted" id="pfRolDesc" style="margin:8px 0 0;font-size:13px"></p>
+        <div class="grid g2" id="pfCursoWrap" style="margin-top:12px" hidden>
+          <label class="f">Curso a cargo<select id="pfNivel"></select></label>
+          <label class="f">Letra<input type="text" id="pfLetra" maxlength="3" placeholder="A"></label>
+        </div>
+        <div class="grid g3" style="margin-top:12px;align-items:end">
+          <label class="f">PIN personal <span class="hint">4 a 8 números</span><input type="password" id="pfPin" inputmode="numeric" maxlength="8" autocomplete="new-password"></label>
+          <label class="f">Repita el PIN<input type="password" id="pfPin2" inputmode="numeric" maxlength="8" autocomplete="new-password"></label>
+          <button class="btn primary" type="submit" style="min-height:40px">Crear perfil</button>
+        </div>
+        <p class="err" id="pfMsg" role="alert" style="margin:10px 0 0"></p>
+      </form>
     </div>
     <div class="panel">
       <h2>Datos del establecimiento</h2>
@@ -612,7 +645,7 @@ function afectadosResumen(c){
   const first = base[0]; const cl=cursoLabel(first.nivel,first.letra);
   return (first.nombre||"Sin nombre")+(cl?" · "+cl:"")+(ps.length>1?"  +"+(ps.length-1):"");
 }
-const allCasos = () => state.demo ? state.demoCasos : state.casos;
+const allCasos = () => { const b = state.demo ? state.demoCasos : state.casos; return (PERFIL && PERFIL.rol==="profesor" && !state.demo) ? b.filter(c=>casoDelCurso(c, PERFIL.nivel, PERFIL.letra)) : b; };
 function toast(msg){ const h=$("#toastHost"); h.innerHTML='<div class="toast" role="status">'+esc(msg)+'</div>'; clearTimeout(toast.t); toast.t=setTimeout(()=>{h.innerHTML="";},2800); }
 function uid(){ return "c"+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function nextFolio(fecha){
@@ -624,7 +657,7 @@ function nextFolio(fecha){
 /* ---------- Autoría: nombre de quien registra (sin inicio de sesión) ---------- */
 let ME = null;
 try{ ME = (JSON.parse(localStorage.getItem("conv-autor")||'""')||"").trim() || null; }catch(e){ ME=null; }
-async function initUser(){ if(!ME && $("#gate").hidden) pedirAutor(); }
+async function initUser(){ syncSesion(); }
 function entry(texto, fecha){ const e={fecha:fecha||today(), texto, ts:new Date().toISOString()}; if(ME) e.por=ME; return e; }
 function whoSpan(v){ if(!v) return ""; const t=/^u_[A-Za-z0-9_-]{10,}$/.test(v)?"Integrante del equipo":v; return '<span class="who" data-uid="'+esc(v)+'">'+esc(t)+'</span>'; }
 async function fillNames(root){
@@ -658,6 +691,136 @@ function firmarAutor(data){ // pone el nombre en lo que se acaba de crear sin no
   (data.citaciones||[]).forEach(ct=>{ if(fresh(ct)) ct.por=ME; });
   if(!data.creadoPor && (data.bitacora||[]).length===1) data.creadoPor=ME;
 }
+
+/* ---------- Perfiles (nombre + PIN personal, sin inicio de sesión con correo) ---------- */
+const ROLES_PERFIL = {
+  admin:{l:"Administrador", d:"Todo: casos, Ajustes, perfiles y eliminar casos."},
+  convivencia:{l:"Equipo de Convivencia", d:"Crea y edita casos, hitos, citaciones y bitácora."},
+  direccion:{l:"Dirección", d:"Ve todos los casos, estadísticas e informes. No edita."},
+  profesor:{l:"Profesor/a jefe", d:"Ve solo los casos de su curso. No edita."}
+};
+let PERFIL = null; // perfil con sesión iniciada en este dispositivo
+const perfilesLista = () => Array.isArray(state.config.perfiles) ? state.config.perfiles : [];
+const hayPerfiles = () => perfilesLista().length>0;
+function can(accion){
+  if(!hayPerfiles() || state.demo) return true;            // sin perfiles: todo abierto (Ajustes sigue con clave)
+  const r = PERFIL ? PERFIL.rol : null;
+  if(!r) return false;
+  if(accion==="editar") return r==="admin" || r==="convivencia";
+  if(accion==="ajustes" || accion==="eliminar") return r==="admin";
+  return true;
+}
+const cursoPerfil = p => p && p.rol==="profesor" ? cursoLabel(p.nivel,p.letra) : "";
+function casoDelCurso(c, nivel, letra){
+  const L=String(letra||"").toUpperCase();
+  if(c.modo==="curso") return c.cursoNivel===nivel && String(c.cursoLetra||"").toUpperCase()===L;
+  return (c.personas||[]).some(pp=>pp.nivel===nivel && String(pp.letra||"").toUpperCase()===L);
+}
+const hashPin = (id, pin) => hashClave("pin|"+id+"|"+pin);
+function iniciarPerfil(p, recordar){
+  PERFIL=p; ME = p.nombre+(p.cargo?", "+p.cargo:"");
+  if(p.rol==="admin") state.adminOk=true; else state.adminOk=false;
+  if(recordar) lsSet("conv-perfil", p.id);
+  aplicarPermisos(); renderAll(); if(state.tab==="ajustes") renderAjustes();
+}
+function cerrarSesion(){
+  PERFIL=null; ME=null; state.adminOk=false; state.citForm=false;
+  try{ localStorage.removeItem("conv-perfil"); }catch(e){}
+  closeDrawer(); aplicarPermisos(); renderHeader(); elegirPerfil();
+}
+function aplicarPermisos(){
+  const tn=$("#tab-nuevo"), ta=$("#tab-ajustes");
+  tn.hidden = !can("editar");
+  ta.hidden = hayPerfiles() && !can("ajustes");
+  if((state.tab==="nuevo" && tn.hidden) || (state.tab==="ajustes" && ta.hidden)) setTab("casos");
+}
+// Decide qué pedir al entrar: elegir perfil (si existen) o escribir el nombre (si no).
+function syncSesion(){
+  if(!$("#gate").hidden || !state.cfgLoaded) return;
+  if(hayPerfiles()){
+    const id=lsGet("conv-perfil",null);
+    if(PERFIL && PERFIL.id!=="_clave"){ const p=perfilesLista().find(x=>x.id===PERFIL.id); if(!p){ cerrarSesion(); return; } if(p.rol!==PERFIL.rol || p.nombre!==PERFIL.nombre || p.cargo!==PERFIL.cargo || p.nivel!==PERFIL.nivel || p.letra!==PERFIL.letra){ iniciarPerfil(p,false); } }
+    else if(!PERFIL){ const p=id && perfilesLista().find(x=>x.id===id); if(p) iniciarPerfil(p,false); else if(!state.pickerOpen) elegirPerfil(); }
+  } else if(!ME && !state.nameAsked){ state.nameAsked=true; pedirAutor(); }
+  aplicarPermisos();
+}
+let pinFallos=0, pinBloqueo=0;
+function elegirPerfil(){
+  state.pickerOpen=true;
+  const h=$("#autorDlg"); h.hidden=false; h.classList.add("solid");
+  const ps=perfilesLista().slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  const logo=(document.querySelector(".logo-plate img")||{}).src||"";
+  h.innerHTML='<div class="gate-card" role="dialog" aria-modal="true" aria-labelledby="pTitle"><img class="gate-logo" src="'+logo+'" alt="Lycée Claude Gay Osorno">'+
+    '<h1 id="pTitle">¿Quién ingresa?</h1><p>Elija su perfil y escriba su PIN.</p>'+
+    '<div class="plist" role="list">'+ps.map(p=>'<button type="button" class="pitem" role="listitem" data-pid="'+esc(p.id)+'"><strong>'+esc(p.nombre)+'</strong><span>'+esc([p.cargo, ROLES_PERFIL[p.rol]?ROLES_PERFIL[p.rol].l:"", cursoPerfil(p)].filter(Boolean).join(" · "))+'</span></button>').join("")+'</div>'+
+    '<form id="pForm" class="gate-mail" hidden><p id="pWho" style="font-weight:600"></p><label class="f">PIN<input type="password" id="pPin" inputmode="numeric" autocomplete="off" maxlength="8"></label>'+
+      '<label class="pchk"><input type="checkbox" id="pRec" checked> Recordarme en este dispositivo</label>'+
+      '<div class="row" style="justify-content:space-between"><button type="button" class="btn" id="pBack">Volver</button><button type="submit" class="btn primary">Entrar</button></div></form>'+
+    '<p class="gate-err" id="pErr" role="alert"></p>'+
+    '<details class="gate-first"><summary>Acceso de administración con clave</summary><p class="muted">Si olvidó su PIN, entre con la clave de administración para restablecerlo en Ajustes → Perfiles.</p><form id="pKeyForm" class="row"><input type="password" id="pKey" autocomplete="off" style="flex:1 1 140px" placeholder="Clave de administración"><button class="btn" type="submit">Entrar</button></form></details>'+
+    '</div>';
+  let sel=null;
+  const err=t=>{ $("#pErr").textContent=t||""; };
+  h.querySelectorAll("[data-pid]").forEach(b=>b.onclick=()=>{ sel=ps.find(p=>p.id===b.dataset.pid); $(".plist").hidden=true; $("#pForm").hidden=false; $("#pWho").textContent=sel.nombre; err(""); setTimeout(()=>$("#pPin").focus(),30); });
+  $("#pBack").onclick=()=>{ sel=null; $(".plist").hidden=false; $("#pForm").hidden=true; err(""); };
+  $("#pForm").onsubmit=async ev=>{
+    ev.preventDefault(); if(!sel) return;
+    if(Date.now()<pinBloqueo){ err("Demasiados intentos. Espere "+Math.ceil((pinBloqueo-Date.now())/1000)+" segundos."); return; }
+    const pin=$("#pPin").value.trim(); let ok=false;
+    try{ ok = (await hashPin(sel.id,pin))===sel.pinHash; }catch(e){ ok=false; }
+    if(!ok){ pinFallos++; if(pinFallos>=5){ pinBloqueo=Date.now()+30000; pinFallos=0; } err("PIN incorrecto."); $("#pPin").value=""; $("#pPin").focus(); return; }
+    pinFallos=0; const rec=$("#pRec").checked; cerrarPicker(); iniciarPerfil(sel, rec); toast("Hola, "+sel.nombre);
+  };
+  $("#pKeyForm").onsubmit=async ev=>{
+    ev.preventDefault();
+    if(await checkClave($("#pKey").value)){ cerrarPicker(); iniciarPerfil({id:"_clave", nombre:"Administración", cargo:"", rol:"admin"}, false); setTab("ajustes"); }
+    else { err("Clave de administración incorrecta."); $("#pKey").value=""; }
+  };
+}
+function cerrarPicker(){ state.pickerOpen=false; const h=$("#autorDlg"); h.hidden=true; h.innerHTML=""; h.classList.remove("solid"); }
+// Endurece la ficha del caso según el perfil.
+function permisosFicha(host){
+  if(!can("editar")){
+    host.querySelectorAll("[data-edit],#d-prorroga,[data-citnew],#d-saveEstado").forEach(el=>el.remove());
+    const la=host.querySelector("#d-ladd"); if(la) la.closest(".row").remove();
+    host.querySelectorAll("[data-hito],[data-cit],#d-estado,#d-cierre,#d-res").forEach(el=>el.disabled=true);
+    const pg=host.querySelector("#d-prorroga"); if(pg) pg.remove();
+  }
+  if(!can("eliminar")){ const d=host.querySelector("[data-del]"); if(d) d.parentElement.remove(); }
+}
+async function guardarPerfiles(lista){
+  const cfg=Object.assign({}, state.config, {perfiles:lista});
+  delete cfg.claveEliminar;
+  if(!cfg.claveHash){ try{ cfg.claveHash=await hashClave(String(state.config.claveEliminar||"0000")); }catch(e){} }
+  return saveConfig(cfg);
+}
+function renderPerfiles(){
+  const ps=perfilesLista().slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  $("#pfIntro").textContent = ps.length ? "Cada persona entra eligiendo su perfil y escribiendo su PIN. Lo que registre queda con su nombre." : "Aún no hay perfiles: cualquiera con el enlace puede entrar escribiendo su nombre. Cree primero su propio perfil de Administrador.";
+  $("#pfList").innerHTML = ps.length ? ps.map(p=>'<li data-row="'+esc(p.id)+'"><span><strong>'+esc(p.nombre)+'</strong>'+(p.cargo?' · '+esc(p.cargo):'')+'<span class="hsub">'+esc(ROLES_PERFIL[p.rol]?ROLES_PERFIL[p.rol].l:p.rol)+(cursoPerfil(p)?' · '+esc(cursoPerfil(p)):'')+(PERFIL&&PERFIL.id===p.id?' · (usted)':'')+'</span></span>'+
+    '<span class="pf-act"><button class="btn sm" data-pfpin="'+esc(p.id)+'">Cambiar PIN</button><button class="btn sm ghost" style="color:var(--danger)" data-pfdel="'+esc(p.id)+'">Quitar</button></span></li>').join("") : '<li class="muted">Sin perfiles todavía.</li>';
+  if(!ps.length) $("#pfRol").value="admin";
+  $("#pfRol").disabled = !ps.length;
+  syncPfCurso();
+  document.querySelectorAll("[data-pfdel]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.pfdel, lista=perfilesLista().filter(x=>x.id!==id);
+    if(lista.length && !lista.some(x=>x.rol==="admin")){ toast("Debe quedar al menos un perfil de Administrador."); return; }
+    if(b.dataset.confirm!=="1"){ b.dataset.confirm="1"; b.textContent="¿Quitar? Toque de nuevo"; return; }
+    if(await guardarPerfiles(lista)){ toast("Perfil quitado"); if(PERFIL && PERFIL.id===id) cerrarSesion(); else renderPerfiles(); }
+  });
+  document.querySelectorAll("[data-pfpin]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.pfpin, act=b.parentElement;
+    act.innerHTML='<input type="password" inputmode="numeric" maxlength="8" placeholder="Nuevo PIN" style="width:120px;min-height:32px;padding:4px 8px"><button class="btn sm primary">Guardar</button>';
+    const inp=act.querySelector("input"); inp.focus();
+    act.querySelector("button").onclick=async()=>{
+      const pin=inp.value.trim(); if(!/^\d{4,8}$/.test(pin)){ toast("El PIN debe tener entre 4 y 8 números."); inp.focus(); return; }
+      const lista=perfilesLista().map(x=>x.id===id?Object.assign({},x,{pinHash:null}):x);
+      const p=lista.find(x=>x.id===id); p.pinHash=await hashPin(id,pin);
+      if(await guardarPerfiles(lista)){ toast("PIN actualizado"); renderPerfiles(); }
+    };
+  });
+}
+function syncPfCurso(){ $("#pfCursoWrap").hidden = $("#pfRol").value!=="profesor"; $("#pfRolDesc").textContent = (ROLES_PERFIL[$("#pfRol").value]||{}).d||""; }
 
 /* ---------- Historial por estudiante ---------- */
 const nkey = s => String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
@@ -705,7 +868,7 @@ async function initFirebase(){
   hideGate();
   fbUnsubs.push(BASE.collection("casos").onSnapshot(s=>{ state.casos=s.docs.map(d=>Object.assign({id:d.id}, d.data())); state.loaded=true; renderAll(); },
     e=>{ state.loaded=true; showGate("error", e&&e.code==="permission-denied" ? "La base de datos rechazó la conexión. Revise que las reglas del paso 2 de la guía estén publicadas." : "Se perdió la conexión con la base de casos. Recargue la página."); renderAll(); }));
-  fbUnsubs.push(BASE.collection("config").doc("general").onSnapshot(s=>{ if(s.exists) applyConfig(s.data()); renderAll(); if(state.tab==="ajustes") renderAjustes(); }, ()=>{}));
+  fbUnsubs.push(BASE.collection("config").doc("general").onSnapshot(s=>{ if(s.exists) applyConfig(s.data()); state.cfgLoaded=true; syncSesion(); renderAll(); if(state.tab==="ajustes") renderAjustes(); }, ()=>{}));
 }
 function hideGate(){ $("#gate").hidden=true; }
 function showGate(kind, extra){
@@ -759,20 +922,22 @@ async function initStore(){
     }, e=>{ state.loaded=true; toast("No se pudo leer la base de casos. Recargue la página."); renderAll(); });
     db.doc("config/general").onSnapshot(s=>{
       if(s.exists){ applyConfig(JSON.parse(JSON.stringify(s.data()))); }
+      state.cfgLoaded=true; syncSesion();
       renderAll(); if(state.tab==="ajustes") renderAjustes();
     }, ()=>{});
   } else {
     state.mode="local";
     state.casos = lsGet(LS_KEY, []);
     applyConfig(lsGet(LS_CFG, {}));
-    state.loaded=true;
+    state.loaded=true; state.cfgLoaded=true;
   }
-  renderAll(); if(state.tab==="ajustes") renderAjustes();
+  renderAll(); if(state.tab==="ajustes") renderAjustes(); syncSesion();
 }
 async function saveCaso(c){
   if(state.demo){ toast("Salga de la demostración para guardar casos."); return false; }
   const data = Object.assign({}, c); delete data.id; data.actualizado = new Date().toISOString();
-  if(!ME){ await pedirAutor(); if(!ME){ toast("Escriba su nombre para poder guardar."); return false; } firmarAutor(data); }
+  if(hayPerfiles() && !can("editar")){ toast("Su perfil es de solo lectura."); return false; }
+  if(!ME && !hayPerfiles()){ await pedirAutor(); if(!ME){ toast("Escriba su nombre para poder guardar."); return false; } firmarAutor(data); }
   data.actualizadoPor = ME || "";
   if(state.mode==="fb"){
     try{ await BASE.collection("casos").doc(c.id).set(data); return true; }
@@ -818,8 +983,13 @@ function renderHeader(){
   tag.textContent = state.demo ? "Demostración" : state.mode==="db" ? "Datos compartidos con el equipo" : state.mode==="local" ? "Guardado solo en este navegador" : state.mode==="fb" ? (state.loaded?"Datos compartidos con el equipo":"Conectando…") : "Conectando…";
   $("#demoBanner").hidden = !state.demo;
   const ab=$("#autorBtn");
-  ab.innerHTML = ME ? '<span class="al">Registra</span> '+esc(ME)+' <span aria-hidden="true">✎</span>' : '¿Quién registra? <span aria-hidden="true">✎</span>';
-  ab.classList.toggle("empty", !ME); ab.title="Cambiar el nombre de quien registra";
+  if(hayPerfiles()){
+    ab.innerHTML = PERFIL ? esc(PERFIL.nombre)+' <span class="al">· '+esc((ROLES_PERFIL[PERFIL.rol]||{}).l||"")+'</span> <span class="al">· Salir</span>' : 'Ingresar';
+    ab.classList.toggle("empty", !PERFIL); ab.title = PERFIL ? "Cerrar sesión o cambiar de perfil" : "Elegir perfil";
+  } else {
+    ab.innerHTML = ME ? '<span class="al">Registra</span> '+esc(ME)+' <span aria-hidden="true">✎</span>' : '¿Quién registra? <span aria-hidden="true">✎</span>';
+    ab.classList.toggle("empty", !ME); ab.title="Cambiar el nombre de quien registra";
+  }
   $("#localBanner").hidden = !(state.mode==="local" && !IN_CLAUDE);
   const n = allCasos().filter(c=>{ const k=plazoInfo(c).k; return k==="vencido"||k==="porvencer"||hitosDe(c).some(h=>h.vencido); }).length;
   const ac=$("#alertCount"); ac.hidden = !n; ac.textContent = n;
@@ -845,7 +1015,7 @@ function renderList(){
   if(!all.length){
     sum.innerHTML="";
     wrap.innerHTML='<div class="empty"><div class="eyebrow">Sin casos registrados</div><h2>Aquí aparecerán los casos de convivencia</h2><p>Cada caso muestra su protocolo, las personas o el curso afectado, el encargado y cuántos días hábiles quedan para resolverlo. Los vencidos y por vencer se marcan en rojo y ámbar.</p><div class="actions"><button class="btn primary" data-go="nuevo">Registrar el primer caso</button><button class="btn" data-demo>Ver con datos de ejemplo</button></div></div>';
-    wrap.querySelector("[data-go]").onclick=()=>setTab("nuevo");
+    const go=wrap.querySelector("[data-go]"); if(can("editar")) go.onclick=()=>setTab("nuevo"); else go.remove();
     wrap.querySelector("[data-demo]").onclick=startDemo;
     return;
   }
@@ -1158,6 +1328,7 @@ function renderDrawer(){
       if(await deleteCaso(c.id)){ toast("Caso "+c.folio+" eliminado"); closeDrawer(); } };
     yd.onclick=tryDel; ci.addEventListener("keydown",e=>{ if(e.key==="Enter") tryDel(); });
   }
+  permisosFicha(host);
 }
 
 /* ---------- Estadísticas ---------- */
@@ -1502,7 +1673,30 @@ document.querySelectorAll("[data-rango]").forEach(b=>b.onclick=()=>setRango(b.da
 $("#repDl").onclick=descargarInforme;
 
 /* ---------- Ajustes ---------- */
-$("#autorBtn").onclick=()=>pedirAutor();
+$("#autorBtn").onclick=()=>{ if(hayPerfiles()){ if(PERFIL) cerrarSesion(); else elegirPerfil(); } else pedirAutor(); };
+$("#pfRol").addEventListener("change",syncPfCurso);
+$("#pfNivel").innerHTML=nivelOptions("",true);
+$("#pfForm").addEventListener("submit", async ev=>{
+  ev.preventDefault();
+  const nombre=$("#pfNombre").value.trim(), cargo=$("#pfCargo").value.trim(), rol=$("#pfRol").value, pin=$("#pfPin").value.trim(), pin2=$("#pfPin2").value.trim();
+  const msg=t=>{ $("#pfMsg").textContent=t||""; };
+  if(nombre.length<3) return msg("Escriba el nombre.");
+  if(!/^\d{4,8}$/.test(pin)) return msg("El PIN debe tener entre 4 y 8 números.");
+  if(pin!==pin2) return msg("Los PIN no coinciden.");
+  const nivel=$("#pfNivel").value, letra=$("#pfLetra").value.trim().toUpperCase();
+  if(rol==="profesor" && !nivel) return msg("Elija el curso del profesor/a jefe.");
+  const primero=!hayPerfiles();
+  if(primero && rol!=="admin") return msg("El primer perfil debe ser de Administrador (el suyo).");
+  if(perfilesLista().some(x=>nkey(x.nombre)===nkey(nombre))) return msg("Ya existe un perfil con ese nombre.");
+  const id="p"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const p={id, nombre, cargo, rol, nivel: rol==="profesor"?nivel:"", letra: rol==="profesor"?letra:"", pinHash: await hashPin(id,pin), creado:today()};
+  if(await guardarPerfiles(perfilesLista().concat([p]))){
+    msg(""); ["#pfNombre","#pfCargo","#pfPin","#pfPin2","#pfLetra"].forEach(x=>$(x).value=""); $("#pfNivel").value="";
+    toast("Perfil de "+nombre+" creado");
+    if(primero){ iniciarPerfil(p,true); toast("Perfiles activados. Usted entró como "+nombre); }
+    renderPerfiles();
+  } else msg("No se pudo guardar el perfil.");
+});
 $("#eqCopy").onclick=()=>copiar(enlaceEquipo(), $("#eqCopy"));
 /* ---------- Clave de administración (cifrada) ---------- */
 async function hashClave(v){
@@ -1517,6 +1711,7 @@ async function checkClave(v){
 }
 const clavePorDefecto = () => !state.config.claveHash && String(state.config.claveEliminar||"0000")==="0000";
 function renderAjLock(){
+  if(PERFIL && PERFIL.rol==="admin") state.adminOk=true;
   const ok=!!state.adminOk;
   $("#ajLock").hidden=ok; $("#ajBody").hidden=!ok;
   if(!ok){ $("#ajErr").textContent=""; $("#ajHint").textContent = clavePorDefecto() ? "La clave aún es la provisoria (0000). Cámbiela apenas entre." : ""; setTimeout(()=>{ const i=$("#ajClave"); if(i && !$("#view-ajustes").hidden) i.focus(); },30); }
@@ -1526,10 +1721,12 @@ $("#ajLockForm").addEventListener("submit", async ev=>{
   if(await checkClave(i.value)){ state.adminOk=true; i.value=""; renderAjLock(); renderAjustes(); }
   else { $("#ajErr").textContent="Clave incorrecta."; i.value=""; i.focus(); }
 });
-$("#ajBloquear").onclick=()=>{ state.adminOk=false; renderAjLock(); };
+$("#ajBloquear").onclick=()=>{ if(PERFIL && PERFIL.rol==="admin"){ setTab("casos"); return; } state.adminOk=false; renderAjLock(); };
 function renderAjustes(){
   renderAjLock();
   if(!state.adminOk) return;
+  $("#ajBloquear").hidden = !!(PERFIL && PERFIL.rol==="admin");
+  renderPerfiles();
   $("#cfgClave2").value="";
   $("#cfgClaveAviso").textContent = clavePorDefecto() ? "Importante: la clave sigue siendo la provisoria 0000. Escriba una nueva y pulse Guardar ajustes." : "";
   renderEquipo();
@@ -1557,7 +1754,7 @@ $("#cfgSave").onclick=async()=>{
   let claveHash;
   try{ claveHash = nc ? await hashClave(nc) : (state.config.claveHash || await hashClave(String(state.config.claveEliminar||"0000"))); }
   catch(e){ $("#cfgMsg").textContent="Este navegador no permite cifrar la clave. Use Chrome, Edge o Safari actualizados."; return; }
-  const cfg={claveHash, colegio:$("#cfgColegio").value.trim(), umbral:Math.max(0,+$("#cfgUmbral").value||0), plazos, feriados:[...new Set(fer)].sort(), s2Inicio: s2v? s2v.slice(5) : "08-01"};
+  const cfg={claveHash, perfiles: perfilesLista(), colegio:$("#cfgColegio").value.trim(), umbral:Math.max(0,+$("#cfgUmbral").value||0), plazos, feriados:[...new Set(fer)].sort(), s2Inicio: s2v? s2v.slice(5) : "08-01"};
   const ok=await saveConfig(cfg);
   $("#cfgMsg").textContent= ok ? "" : "No se pudieron guardar los ajustes. Revise su nivel de acceso.";
   if(ok){ toast(nc?"Ajustes y nueva clave guardados":"Ajustes guardados"); $("#cfgClave").value=""; $("#cfgClave2").value=""; renderAll(); renderAjustes(); }
