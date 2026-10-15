@@ -402,6 +402,28 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
   </section>
 
   <section id="view-ajustes" role="tabpanel" hidden>
+    <div class="panel lockpanel" id="ajLock">
+      <h2>Ajustes de administración</h2>
+      <p class="lead">Esta sección es solo para quien administra la plataforma. Ingrese la clave de administración para continuar.</p>
+      <form id="ajLockForm" class="row" autocomplete="off">
+        <label class="f" style="flex:0 1 220px">Clave de administración<input type="password" id="ajClave" autocomplete="off" inputmode="numeric"></label>
+        <button class="btn primary" type="submit" style="min-height:40px">Entrar a Ajustes</button>
+      </form>
+      <p class="err" id="ajErr" role="alert" style="margin:10px 0 0"></p>
+      <p class="muted" id="ajHint" style="margin:10px 0 0;font-size:13px"></p>
+    </div>
+    <div id="ajBody" hidden>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div><h2>Clave de administración</h2><p class="lead" style="margin:0">Sirve para entrar a Ajustes y para eliminar casos. Se guarda cifrada: nadie puede leerla en la base de datos.</p></div>
+        <button class="btn sm" id="ajBloquear" type="button">Bloquear Ajustes</button>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <label class="f">Nueva clave <span class="hint">Mínimo 4 caracteres. Déjela vacía para mantener la actual.</span><input type="password" id="cfgClave" autocomplete="new-password"></label>
+        <label class="f">Repita la nueva clave<input type="password" id="cfgClave2" autocomplete="new-password"></label>
+      </div>
+      <p class="muted" id="cfgClaveAviso" style="margin:10px 0 0;font-size:13px"></p>
+    </div>
     <div class="panel">
       <h2>Datos del establecimiento</h2>
       <p class="lead">Estos ajustes se comparten con todo el equipo que usa la plataforma.</p>
@@ -411,8 +433,6 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
           <input type="number" id="cfgUmbral" min="0" max="15"></label>
         <label class="f">Inicio del 2° semestre <span class="hint">Régimen semestral. Se usa en la estadística por semestre.</span>
           <input type="date" id="cfgS2"></label>
-        <label class="f">Clave para eliminar casos <span class="hint">Clave provisoria: 0000. Cámbiela aquí.</span>
-          <input type="password" id="cfgClave" autocomplete="new-password" placeholder="Nueva clave (dejar vacío para mantener)"></label>
         <label class="f">Feriados <span class="hint">Una fecha por línea (AAAA-MM-DD). No se cuentan como días hábiles, según el RICE.</span>
           <textarea id="cfgFeriados" rows="6"></textarea></label>
       </div>
@@ -432,6 +452,7 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
         <button class="btn primary" id="cfgSave">Guardar ajustes</button>
       </div>
     </div>
+      </div>
   </section>
 </main>
 
@@ -519,7 +540,7 @@ const ESTADOS = {abierto:"Abierto", investigacion:"En investigación", seguimien
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MESES_L = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const FERIADOS_DEF = ["2026-01-01","2026-04-03","2026-04-04","2026-05-01","2026-05-21","2026-06-21","2026-06-29","2026-07-16","2026-08-15","2026-09-18","2026-09-19","2026-10-12","2026-10-31","2026-11-01","2026-12-08","2026-12-25"];
-const CFG_DEF = () => ({claveEliminar:"0000", colegio:"Lycée Claude Gay de Osorno", umbral:3, plazos:{}, feriados:FERIADOS_DEF.slice(), s2Inicio:"08-01"});
+const CFG_DEF = () => ({colegio:"Lycée Claude Gay de Osorno", umbral:3, plazos:{}, feriados:FERIADOS_DEF.slice(), s2Inicio:"08-01"});
 
 /* ---------- Estado ---------- */
 const state = {
@@ -1133,7 +1154,7 @@ function renderDrawer(){
   const nd=host.querySelector("[data-nodel]"); if(nd) nd.onclick=()=>{ state.confirmDel=false; renderDrawer(); };
   const yd=host.querySelector("[data-yesdel]"); if(yd){
     const ci=host.querySelector("#d-clave"); ci.focus();
-    const tryDel=async()=>{ if(ci.value!==String(state.config.claveEliminar||"0000")){ host.querySelector("#d-claveErr").textContent="Clave incorrecta. El caso no se eliminó."; ci.value=""; ci.focus(); return; }
+    const tryDel=async()=>{ if(!(await checkClave(ci.value))){ host.querySelector("#d-claveErr").textContent="Clave incorrecta. El caso no se eliminó."; ci.value=""; ci.focus(); return; }
       if(await deleteCaso(c.id)){ toast("Caso "+c.folio+" eliminado"); closeDrawer(); } };
     yd.onclick=tryDel; ci.addEventListener("keydown",e=>{ if(e.key==="Enter") tryDel(); });
   }
@@ -1483,7 +1504,34 @@ $("#repDl").onclick=descargarInforme;
 /* ---------- Ajustes ---------- */
 $("#autorBtn").onclick=()=>pedirAutor();
 $("#eqCopy").onclick=()=>copiar(enlaceEquipo(), $("#eqCopy"));
+/* ---------- Clave de administración (cifrada) ---------- */
+async function hashClave(v){
+  const data=new TextEncoder().encode("convivencia-lcg|"+String(v));
+  const buf=await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf),b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function checkClave(v){
+  const cfg=state.config;
+  if(cfg.claveHash){ try{ return (await hashClave(v))===cfg.claveHash; }catch(e){ return false; } }
+  return String(v)===String(cfg.claveEliminar||"0000");
+}
+const clavePorDefecto = () => !state.config.claveHash && String(state.config.claveEliminar||"0000")==="0000";
+function renderAjLock(){
+  const ok=!!state.adminOk;
+  $("#ajLock").hidden=ok; $("#ajBody").hidden=!ok;
+  if(!ok){ $("#ajErr").textContent=""; $("#ajHint").textContent = clavePorDefecto() ? "La clave aún es la provisoria (0000). Cámbiela apenas entre." : ""; setTimeout(()=>{ const i=$("#ajClave"); if(i && !$("#view-ajustes").hidden) i.focus(); },30); }
+}
+$("#ajLockForm").addEventListener("submit", async ev=>{
+  ev.preventDefault(); const i=$("#ajClave");
+  if(await checkClave(i.value)){ state.adminOk=true; i.value=""; renderAjLock(); renderAjustes(); }
+  else { $("#ajErr").textContent="Clave incorrecta."; i.value=""; i.focus(); }
+});
+$("#ajBloquear").onclick=()=>{ state.adminOk=false; renderAjLock(); };
 function renderAjustes(){
+  renderAjLock();
+  if(!state.adminOk) return;
+  $("#cfgClave2").value="";
+  $("#cfgClaveAviso").textContent = clavePorDefecto() ? "Importante: la clave sigue siendo la provisoria 0000. Escriba una nueva y pulse Guardar ajustes." : "";
   renderEquipo();
   const cfg=state.config;
   $("#cfgColegio").value=cfg.colegio||"";
@@ -1500,11 +1548,19 @@ $("#cfgSave").onclick=async()=>{
   const bad=fer.filter(x=>!/^\d{4}-\d{2}-\d{2}$/.test(x));
   if(bad.length){ $("#cfgMsg").textContent="Revise estas fechas de feriados: "+bad.join(", ")+". Use el formato AAAA-MM-DD."; return; }
   const s2v=$("#cfgS2").value;
-  const nc=$("#cfgClave").value.trim();
-  const cfg={claveEliminar: nc || String(state.config.claveEliminar||"0000"), colegio:$("#cfgColegio").value.trim(), umbral:Math.max(0,+$("#cfgUmbral").value||0), plazos, feriados:[...new Set(fer)].sort(), s2Inicio: s2v? s2v.slice(5) : "08-01"};
+  if(!state.adminOk){ renderAjLock(); return; }
+  const nc=$("#cfgClave").value.trim(), nc2=$("#cfgClave2").value.trim();
+  if(nc || nc2){
+    if(nc.length<4){ $("#cfgMsg").textContent="La nueva clave debe tener al menos 4 caracteres."; return; }
+    if(nc!==nc2){ $("#cfgMsg").textContent="Las dos claves nuevas no coinciden."; return; }
+  }
+  let claveHash;
+  try{ claveHash = nc ? await hashClave(nc) : (state.config.claveHash || await hashClave(String(state.config.claveEliminar||"0000"))); }
+  catch(e){ $("#cfgMsg").textContent="Este navegador no permite cifrar la clave. Use Chrome, Edge o Safari actualizados."; return; }
+  const cfg={claveHash, colegio:$("#cfgColegio").value.trim(), umbral:Math.max(0,+$("#cfgUmbral").value||0), plazos, feriados:[...new Set(fer)].sort(), s2Inicio: s2v? s2v.slice(5) : "08-01"};
   const ok=await saveConfig(cfg);
   $("#cfgMsg").textContent= ok ? "" : "No se pudieron guardar los ajustes. Revise su nivel de acceso.";
-  if(ok){ toast("Ajustes guardados"); renderAll(); }
+  if(ok){ toast(nc?"Ajustes y nueva clave guardados":"Ajustes guardados"); $("#cfgClave").value=""; $("#cfgClave2").value=""; renderAll(); renderAjustes(); }
 };
 
 /* ---------- Demostración (en memoria, no se guarda) ---------- */
