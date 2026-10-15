@@ -291,6 +291,7 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
 .plist{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto}
 .pitem{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;cursor:pointer;font-size:14px}
 .pitem span{font-size:12.5px;color:var(--muted)}
+.pgroup strong{font-size:15px}
 .pitem:hover,.pitem:focus-visible{border-color:var(--accent);background:var(--accent-soft)}
 .pchk{display:flex;gap:8px;align-items:center;font-size:13.5px}
 .pchk input{width:18px;height:18px}
@@ -801,8 +802,9 @@ function elegirPerfil(){
   const ps=perfilesLista().slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
   const logo=(document.querySelector(".logo-plate img")||{}).src||"";
   h.innerHTML='<div class="gate-card" role="dialog" aria-modal="true" aria-labelledby="pTitle"><img class="gate-logo" src="'+logo+'" alt="Lycée Claude Gay Osorno">'+
-    '<h1 id="pTitle">¿Quién ingresa?</h1><p>Elija su perfil y escriba su PIN.</p>'+
-    '<div class="plist" role="list">'+ps.map(p=>'<button type="button" class="pitem" role="listitem" data-pid="'+esc(p.id)+'"><strong>'+esc(p.nombre)+'</strong><span>'+esc([p.cargo, ROLES_PERFIL[p.rol]?ROLES_PERFIL[p.rol].l:"", cursoPerfil(p)].filter(Boolean).join(" · "))+'</span></button>').join("")+'</div>'+
+    '<h1 id="pTitle">¿Quién ingresa?</h1><p id="pStep">Elija su grupo.</p>'+
+    '<div class="plist" id="pGroups" role="list"></div>'+
+    '<div id="pPeople" hidden><input type="search" id="pSearch" placeholder="Buscar por nombre o curso" autocomplete="off" hidden><div class="plist" id="pPeopleList" role="list" style="margin-top:8px"></div><button type="button" class="btn sm" id="pBackGroup" style="margin-top:10px">← Cambiar grupo</button></div>'+
     '<form id="pForm" class="gate-mail" hidden><p id="pWho" style="font-weight:600"></p><label class="f">PIN<input type="password" id="pPin" inputmode="numeric" autocomplete="off" maxlength="8"></label>'+
       '<label class="pchk"><input type="checkbox" id="pRec" checked> Recordarme en este dispositivo</label>'+
       '<div class="row" style="justify-content:space-between"><button type="button" class="btn" id="pBack">Volver</button><button type="submit" class="btn primary">Entrar</button></div></form>'+
@@ -811,8 +813,39 @@ function elegirPerfil(){
     '</div>';
   let sel=null;
   const err=t=>{ $("#pErr").textContent=t||""; };
-  h.querySelectorAll("[data-pid]").forEach(b=>b.onclick=()=>{ sel=ps.find(p=>p.id===b.dataset.pid); $(".plist").hidden=true; $("#pForm").hidden=false; $("#pWho").textContent=sel.nombre; err(""); setTimeout(()=>$("#pPin").focus(),30); });
-  $("#pBack").onclick=()=>{ sel=null; $(".plist").hidden=false; $("#pForm").hidden=true; err(""); };
+  // Paso 1: grupo · Paso 2: persona · Paso 3: PIN
+  const GRUPOS=[["direccion","Dirección"],["convivencia","Convivencia Escolar"],["profesor","Profesores jefe"],["admin","Administración"]];
+  const NIV_ORD=Object.fromEntries(NIVELES.map((n,i)=>[n.c,i]));
+  let grupo=null, unSolo=false;
+  const persona=p=>'<button type="button" class="pitem" role="listitem" data-pid="'+esc(p.id)+'"><strong>'+esc(p.nombre)+'</strong><span>'+esc([p.rol==="profesor"?cursoPerfil(p):"", p.cargo].filter(Boolean).join(" · ")||((ROLES_PERFIL[p.rol]||{}).l||""))+'</span></button>';
+  const verPin=p=>{ sel=p; $("#pGroups").hidden=true; $("#pPeople").hidden=true; $("#pForm").hidden=false; $("#pStep").textContent="Escriba su PIN."; $("#pWho").textContent=p.nombre+(p.rol==="profesor"&&cursoPerfil(p)?" · "+cursoPerfil(p):""); err(""); setTimeout(()=>$("#pPin").focus(),30); };
+  const verGrupos=()=>{
+    grupo=null; sel=null; $("#pStep").textContent="Elija su grupo."; $("#pForm").hidden=true; $("#pPeople").hidden=true; $("#pGroups").hidden=false; err("");
+    const gs=GRUPOS.map(([k,l])=>[k,l,ps.filter(p=>p.rol===k)]).filter(g=>g[2].length);
+    $("#pGroups").innerHTML=gs.map(([k,l,arr])=>'<button type="button" class="pitem pgroup" role="listitem" data-grp="'+k+'"><strong>'+esc(l)+'</strong><span>'+(k==="admin"?"Administración del sistema":arr.length+(arr.length===1?" persona":" personas"))+'</span></button>').join("");
+    h.querySelectorAll("[data-grp]").forEach(b=>b.onclick=()=>verPersonas(b.dataset.grp));
+  };
+  const pintarPersonas=()=>{
+    const q=nkey($("#pSearch").value);
+    let arr=ps.filter(p=>p.rol===grupo);
+    if(grupo==="profesor") arr.sort((a,b)=>((NIV_ORD[a.nivel]??99)-(NIV_ORD[b.nivel]??99)) || String(a.letra).localeCompare(String(b.letra)) || a.nombre.localeCompare(b.nombre,"es"));
+    if(q) arr=arr.filter(p=>nkey(p.nombre+" "+cursoPerfil(p)+" "+(p.cargo||"")).includes(q));
+    $("#pPeopleList").innerHTML = arr.length ? arr.map(persona).join("") : '<p class="muted" style="margin:6px 0">Nadie coincide con la búsqueda.</p>';
+    h.querySelectorAll("#pPeopleList [data-pid]").forEach(b=>b.onclick=()=>verPin(ps.find(p=>p.id===b.dataset.pid)));
+  };
+  const verPersonas=k=>{
+    grupo=k; const arr=ps.filter(p=>p.rol===k);
+    unSolo = arr.length===1;
+    if(unSolo){ verPin(arr[0]); return; }
+    $("#pGroups").hidden=true; $("#pForm").hidden=true; $("#pPeople").hidden=false; err("");
+    $("#pStep").textContent=(GRUPOS.find(g=>g[0]===k)||[,""])[1]+": elija su nombre.";
+    $("#pSearch").hidden = arr.length<=6; $("#pSearch").value="";
+    pintarPersonas(); if(!$("#pSearch").hidden) setTimeout(()=>$("#pSearch").focus(),30);
+  };
+  $("#pSearch").oninput=pintarPersonas;
+  $("#pBackGroup").onclick=verGrupos;
+  $("#pBack").onclick=()=>{ if(grupo && !unSolo) verPersonas(grupo); else verGrupos(); };
+  verGrupos();
   $("#pForm").onsubmit=async ev=>{
     ev.preventDefault(); if(!sel) return;
     if(Date.now()<pinBloqueo){ err("Demasiados intentos. Espere "+Math.ceil((pinBloqueo-Date.now())/1000)+" segundos."); return; }
