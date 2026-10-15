@@ -143,7 +143,7 @@ legend{font-family:var(--f-display);font-weight:600;font-size:16px;margin-bottom
 .seg input:checked + span{color:var(--ink)}
 .seg label:has(input:checked){background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .seg label:has(input:focus-visible){outline:2px solid var(--accent)}
-.person{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,1.1fr) 64px minmax(0,1.2fr) 40px;gap:8px;align-items:end;padding:10px;border-radius:10px;background:var(--surface-2);margin-bottom:8px}
+.person{display:grid;grid-template-columns:minmax(0,1.1fr) 64px minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,1.2fr) 40px;gap:8px;align-items:end;padding:10px;border-radius:10px;background:var(--surface-2);margin-bottom:8px}
 .person .rm{min-height:40px;width:40px;justify-content:center;padding:0}
 @media (max-width:760px){.person{grid-template-columns:1fr 1fr}.person .p-nombre{grid-column:1 / -1}.person .rm{grid-column:2;justify-self:end}}
 .deadline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--accent-soft);border-radius:10px;padding:10px 14px;font-size:14px;margin-top:4px}
@@ -306,6 +306,9 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
 .pintable{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--surface)}
 .pintable th,.pintable td{border:1px solid var(--line);padding:6px 10px;text-align:left}
 .pintable .pinc{font-family:var(--f-mono);font-size:16px;font-weight:700;letter-spacing:.15em}
+.p-profwrap{grid-column:1 / -1}
+.p-prof{font-size:12.5px;color:var(--accent);background:var(--surface);border-radius:999px;padding:3px 10px;display:inline-block}
+.cstable td.num{text-align:right}
 .linkbtn{background:none;border:0;color:var(--head-ink);text-decoration:underline;cursor:pointer;padding:0;font-size:12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion: no-preference){.drawer{animation:slide .22s ease-out}@keyframes slide{from{transform:translateX(30px);opacity:.6}}}
@@ -455,6 +458,23 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
         <label class="f">Repita la nueva clave<input type="password" id="cfgClave2" autocomplete="new-password"></label>
       </div>
       <p class="muted" id="cfgClaveAviso" style="margin:10px 0 0;font-size:13px"></p>
+    </div>
+    <div class="panel">
+      <h2>Listas de cursos</h2>
+      <p class="lead">Suba los PDF «Lista de Alumnos» de cada curso. Al registrar un caso, al elegir curso y letra aparecerá la lista de estudiantes y el profesor/a jefe. Para actualizar un curso, vuelva a subir su PDF.</p>
+      <p class="muted" id="csResumen" style="margin:0 0 10px;font-size:13.5px"></p>
+      <div id="csList"></div>
+      <div class="row" style="margin-top:12px;align-items:center">
+        <label class="btn" for="csFile" style="cursor:pointer">Subir listas (PDF)</label>
+        <input type="file" id="csFile" accept="application/pdf,.pdf" multiple hidden>
+        <span class="muted" style="font-size:13px">Puede seleccionar varios archivos a la vez.</span>
+      </div>
+      <p class="err" id="csMsg" role="alert" style="margin:10px 0 0"></p>
+      <div id="csPrev" hidden style="margin-top:12px">
+        <div class="eyebrow" style="margin-bottom:6px">Revise antes de guardar</div>
+        <div class="tw"><table class="pintable"><thead><tr><th>Archivo</th><th>Curso</th><th>Profesor/a jefe</th><th>Estudiantes</th><th></th></tr></thead><tbody id="csPrevBody"></tbody></table></div>
+        <div class="row" style="margin-top:10px"><button class="btn primary sm" id="csSave" type="button">Guardar listas</button><button class="btn sm" id="csCancel" type="button">Cancelar</button></div>
+      </div>
     </div>
     <div class="panel">
       <h2>Perfiles</h2>
@@ -607,7 +627,7 @@ const CFG_DEF = () => ({colegio:"Lycée Claude Gay de Osorno", umbral:3, plazos:
 
 /* ---------- Estado ---------- */
 const state = {
-  casos: [], demoCasos: [], demo:false, loaded:false, mode:"loading",
+  casos: [], demoCasos: [], demo:false, cursos:{}, loaded:false, mode:"loading",
   config: CFG_DEF(),
   tab:"casos", year:null, openId:null
 };
@@ -953,6 +973,7 @@ async function initFirebase(){
   hideGate();
   fbUnsubs.push(BASE.collection("casos").onSnapshot(s=>{ state.casos=s.docs.map(d=>Object.assign({id:d.id}, d.data())); state.loaded=true; renderAll(); },
     e=>{ state.loaded=true; showGate("error", e&&e.code==="permission-denied" ? "La base de datos rechazó la conexión. Revise que las reglas del paso 2 de la guía estén publicadas." : "Se perdió la conexión con la base de casos. Recargue la página."); renderAll(); }));
+  fbUnsubs.push(BASE.collection("config").doc("cursos").onSnapshot(s=>{ aplicarCursos(s.exists?s.data():null); if(state.tab==="ajustes") renderCursosPanel(); if(state.tab==="nuevo" && !state.formSucio) renderNewForm(); }, ()=>{}));
   fbUnsubs.push(BASE.collection("config").doc("general").onSnapshot(s=>{ if(s.exists) applyConfig(s.data()); state.cfgLoaded=true; syncSesion(); renderAll(); if(state.tab==="ajustes") renderAjustes(); }, ()=>{}));
 }
 function hideGate(){ $("#gate").hidden=true; }
@@ -989,6 +1010,127 @@ function renderEquipo(){
   $("#eqLink").textContent=enlaceEquipo();
 }
 
+function parseListaItems(items){ // items: [{s,x,y}] de una página de "Lista de Alumnos"
+  const it=items.map(i=>({s:String(i.s).replace(/­/g,"-").replace(/\s+/g," ").trim(),x:i.x,y:i.y})).filter(i=>i.s);
+  const near=(a,b,t)=>Math.abs(a-b)<=t;
+  const cur=it.find(i=>/^curso:?$/i.test(i.s)) || it.find(i=>/^curso:/i.test(i.s));
+  let cursoTxt="";
+  if(cur){ const m=/^curso:\s*(.+)$/i.exec(cur.s); cursoTxt = m ? m[1] : (it.filter(i=>i!==cur && near(i.y,cur.y,4) && i.x>cur.x).sort((a,b)=>a.x-b.x)[0]||{}).s||""; }
+  let nivel="", letra="", m;
+  const ct=cursoTxt.toUpperCase().replace(/\s+/g,"");
+  if((m=/^(\d)E([MB])-?([A-Z])$/.exec(ct))) { nivel=m[1]+(m[2]==="M"?"M":"B"); letra=m[3]; }
+  else if((m=/^(TPS|PS|MS|GS|PK|K)-?([A-Z])$/.exec(ct))) { nivel=({PK:"MS",K:"GS"})[m[1]]||m[1]; letra=m[2]; }
+  else { const c=(typeof fichaCurso==="function")?fichaCurso(cursoTxt.replace(/-([A-Z])$/i," $1")):{nivel:"",letra:""}; nivel=c.nivel; letra=c.letra; }
+  const hdr=it.find(i=>/^nombre$/i.test(i.s));
+  const nomX=hdr?hdr.x:140;
+  const nums=it.filter(i=>/^\d{1,3}$/.test(i.s) && i.x < nomX-15).sort((a,b)=>b.y-a.y);
+  const alumnos=[];
+  nums.forEach(n=>{ const nm=it.filter(i=>i!==n && near(i.y,n.y,4) && i.x>=nomX-15 && !/^\d{1,3}$/.test(i.s)).sort((a,b)=>a.x-b.x).map(i=>i.s).join(" ").trim(); if(nm) alumnos.push(nm); });
+  const pj=it.find(i=>/profesor\s*jefe/i.test(i.s));
+  let profesor="";
+  if(pj){ const yTop=pj.y, yBot=nums.length?nums[0].y:pj.y-60;
+    profesor=it.filter(i=>i!==pj && i.y<yTop-2 && i.y>yBot+2 && i.x>=pj.x-80 && !/^(n[ºo°]?|nombre)$/i.test(i.s)).sort((a,b)=>b.y-a.y||a.x-b.x).map(i=>i.s).join(" ").trim();
+    const same=/profesor\s*jefe:?\s*(.+)$/i.exec(pj.s); if(!profesor && same) profesor=same[1].trim(); }
+  return {nivel, letra, cursoTxt, profesor, alumnos};
+}
+
+/* ---------- Listas de cursos (estudiantes y profesor/a jefe) ---------- */
+// Los nombres se guardan solo en la base de datos del colegio, nunca en este código.
+const LS_CURSOS="convivencia-cursos-v1";
+const cursoKey=(n,l)=>n+"-"+String(l||"").toUpperCase();
+const listaCurso=(n,l)=>n&&l ? (state.cursos||{})[cursoKey(n,l)]||null : null;
+const letrasDe=n=>Object.values(state.cursos||{}).filter(c=>c.nivel===n).map(c=>c.letra).sort();
+function alumnoEnListas(nombre){
+  const k=nkey(nombre); if(!k || k.length<5) return null;
+  for(const c of Object.values(state.cursos||{})){ const a=(c.alumnos||[]).find(x=>nkey(x)===k); if(a) return {nivel:c.nivel, letra:c.letra, nombre:a}; }
+  return null;
+}
+const profesorDe=(n,l)=>{ const c=listaCurso(n,l); return c&&c.profesor?c.profesor:""; };
+function aplicarCursos(d){ state.cursos=(d&&d.cursos)||{}; }
+async function guardarCursos(cursos){
+  const doc={cursos, actualizado:new Date().toISOString(), por:ME||""};
+  try{
+    if(state.mode==="fb") await BASE.collection("config").doc("cursos").set(doc);
+    else if(state.mode==="db") await DB.doc("config/cursos").set(doc);
+    else lsSet(LS_CURSOS, doc);
+    aplicarCursos(doc); return true;
+  }catch(e){ return false; }
+}
+function letraHTML(id, nivel, valor, dataK){
+  const ls=letrasDe(nivel), v=String(valor||"").toUpperCase();
+  if(nivel && ls.length){
+    const opts=ls.slice(); if(v && !opts.includes(v)) opts.push(v);
+    return '<select id="'+id+'"'+(dataK?' data-k="'+dataK+'"':'')+'><option value="">—</option>'+opts.map(l=>'<option'+(l===v?' selected':'')+'>'+esc(l)+'</option>').join("")+'</select>';
+  }
+  return '<input type="text" id="'+id+'"'+(dataK?' data-k="'+dataK+'"':'')+' maxlength="3" value="'+esc(v)+'" placeholder="A">';
+}
+function profHint(n,l){
+  const c=listaCurso(n,l); if(!c) return "";
+  return '<span class="p-prof">Profesor/a jefe: <strong>'+esc(c.profesor||"sin registro")+'</strong> · '+(c.alumnos||[]).length+' estudiantes en la lista</span>';
+}
+// Lectura de los PDF "Lista de Alumnos" del colegio
+let PDFJS=null;
+async function cargarPdfJs(){
+  if(PDFJS) return PDFJS;
+  const base="https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/";
+  PDFJS=await import(base+"pdf.min.mjs");
+  PDFJS.GlobalWorkerOptions.workerSrc=base+"pdf.worker.min.mjs";
+  return PDFJS;
+}
+async function leerListaPdf(file){
+  const pdfjs=await cargarPdfJs();
+  const doc=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+  const res=[];
+  for(let p=1;p<=doc.numPages;p++){
+    const tc=await (await doc.getPage(p)).getTextContent();
+    const r=parseListaItems(tc.items.map(i=>({s:i.str,x:i.transform[4],y:i.transform[5]})));
+    if(r.nivel && r.letra && r.alumnos.length) res.push(r);
+    else if(p===1 && !r.alumnos.length) throw new Error("formato");
+  }
+  // varias páginas del mismo curso: se juntan
+  const m={}; res.forEach(r=>{ const k=cursoKey(r.nivel,r.letra); if(!m[k]) m[k]=Object.assign({},r,{alumnos:[]}); m[k].alumnos.push(...r.alumnos); if(!m[k].profesor && r.profesor) m[k].profesor=r.profesor; });
+  return Object.values(m);
+}
+let cursosPendientes=[];
+function renderCursosPanel(){
+  const host=$("#csList"); if(!host) return;
+  const cs=Object.values(state.cursos||{}).sort((a,b)=>(NIVELES.findIndex(n=>n.c===a.nivel)-NIVELES.findIndex(n=>n.c===b.nivel))||a.letra.localeCompare(b.letra));
+  const tot=cs.reduce((s,c)=>s+(c.alumnos||[]).length,0);
+  $("#csResumen").textContent = cs.length ? cs.length+(cs.length===1?" curso cargado":" cursos cargados")+" · "+tot+" estudiantes" : "Aún no hay listas cargadas.";
+  host.innerHTML = cs.length ? '<div class="tw"><table class="pintable cstable"><thead><tr><th>Curso</th><th>Profesor/a jefe</th><th>Estudiantes</th><th>Actualizado</th><th></th></tr></thead><tbody>'+
+    cs.map(c=>'<tr><td>'+esc(cursoLabel(c.nivel,c.letra))+'</td><td>'+esc(c.profesor||"—")+'</td><td class="num">'+(c.alumnos||[]).length+'</td><td>'+esc(fechaCorta(c.actualizado))+'</td><td><button class="btn sm ghost" style="color:var(--danger)" data-csdel="'+esc(cursoKey(c.nivel,c.letra))+'">Quitar</button></td></tr>').join("")+'</tbody></table></div>' : "";
+  host.querySelectorAll("[data-csdel]").forEach(b=>b.onclick=async()=>{
+    if(b.dataset.confirm!=="1"){ b.dataset.confirm="1"; b.textContent="¿Quitar? Toque de nuevo"; return; }
+    const cur=Object.assign({},state.cursos); delete cur[b.dataset.csdel];
+    if(await guardarCursos(cur)){ toast("Lista quitada"); renderCursosPanel(); }
+  });
+}
+function initCursosUI(){
+  $("#csFile").onchange=async ev=>{
+    const files=[...ev.target.files]; ev.target.value=""; if(!files.length) return;
+    const msg=$("#csMsg"); msg.textContent="Leyendo "+files.length+(files.length===1?" archivo…":" archivos…");
+    const ok=[], err=[];
+    for(const f of files){
+      try{ const rs=await leerListaPdf(f); if(!rs.length) err.push(f.name+": no se encontró el curso."); rs.forEach(r=>ok.push(Object.assign(r,{archivo:f.name}))); }
+      catch(e){ err.push(f.name+(e.message==="formato"?": no tiene el formato de «Lista de Alumnos».":": no se pudo leer.")); }
+    }
+    cursosPendientes=ok;
+    const prev=$("#csPrev");
+    if(!ok.length){ prev.hidden=true; msg.textContent=err.join(" ")||"No se encontraron listas."; return; }
+    msg.textContent = err.length ? "Algunos archivos no se pudieron leer: "+err.join(" ") : "";
+    prev.hidden=false;
+    $("#csPrevBody").innerHTML=ok.map(r=>{ const ex=listaCurso(r.nivel,r.letra); return '<tr><td>'+esc(r.archivo)+'</td><td>'+esc(cursoLabel(r.nivel,r.letra))+'</td><td>'+esc(r.profesor||"—")+'</td><td class="num">'+r.alumnos.length+'</td><td>'+(ex?'<span class="chip porvencer">Reemplaza la lista actual ('+(ex.alumnos||[]).length+')</span>':'<span class="chip ok">Nuevo</span>')+'</td></tr>'; }).join("");
+  };
+  $("#csSave").onclick=async()=>{
+    if(!cursosPendientes.length) return;
+    const cur=Object.assign({},state.cursos||{});
+    cursosPendientes.forEach(r=>{ cur[cursoKey(r.nivel,r.letra)]={nivel:r.nivel, letra:r.letra, profesor:r.profesor, alumnos:r.alumnos, actualizado:today(), archivo:r.archivo}; });
+    if(await guardarCursos(cur)){ toast(cursosPendientes.length+(cursosPendientes.length===1?" lista guardada":" listas guardadas")); cursosPendientes=[]; $("#csPrev").hidden=true; renderCursosPanel(); }
+    else $("#csMsg").textContent="No se pudieron guardar las listas.";
+  };
+  $("#csCancel").onclick=()=>{ cursosPendientes=[]; $("#csPrev").hidden=true; $("#csMsg").textContent=""; };
+}
+
 /* ---------- Almacenamiento ---------- */
 const LS_KEY="convivencia-casos-v1", LS_CFG="convivencia-config-v1";
 function lsGet(k,f){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):f; }catch(e){ return f; } }
@@ -1005,6 +1147,7 @@ async function initStore(){
       state.casos = s.docs.map(d=>Object.assign({id:d.id}, JSON.parse(JSON.stringify(d.data()))));
       state.loaded=true; renderAll();
     }, e=>{ state.loaded=true; toast("No se pudo leer la base de casos. Recargue la página."); renderAll(); });
+    db.doc("config/cursos").onSnapshot(s=>{ aplicarCursos(s.exists?JSON.parse(JSON.stringify(s.data())):null); if(state.tab==="ajustes") renderCursosPanel(); }, ()=>{});
     db.doc("config/general").onSnapshot(s=>{
       if(s.exists){ applyConfig(JSON.parse(JSON.stringify(s.data()))); }
       state.cfgLoaded=true; syncSesion();
@@ -1013,7 +1156,7 @@ async function initStore(){
   } else {
     state.mode="local";
     state.casos = lsGet(LS_KEY, []);
-    applyConfig(lsGet(LS_CFG, {}));
+    applyConfig(lsGet(LS_CFG, {})); aplicarCursos(lsGet(LS_CURSOS, null));
     state.loaded=true; state.cfgLoaded=true;
   }
   renderAll(); if(state.tab==="ajustes") renderAjustes(); syncSesion();
@@ -1170,7 +1313,7 @@ function renderCaseForm(host, caso, onDone, prefill){
   '<fieldset><legend>Afectados</legend>'+
     '<div class="seg" role="radiogroup"><label><input type="radio" name="'+px+'-modo" value="personas"'+(c.modo!=="curso"?" checked":"")+'><span>Personas</span></label><label><input type="radio" name="'+px+'-modo" value="curso"'+(c.modo==="curso"?" checked":"")+'><span>Curso completo</span></label></div>'+
     '<div id="'+px+'-personas"></div>'+
-    '<div id="'+px+'-curso" class="grid g2" hidden><label class="f">Nivel<select id="'+px+'-cnivel">'+nivelOptions(c.cursoNivel,true)+'</select></label><label class="f">Letra del curso<input type="text" id="'+px+'-cletra" maxlength="3" value="'+esc(c.cursoLetra||"")+'" placeholder="A"></label></div>'+
+    '<div id="'+px+'-curso" class="grid g2" hidden><label class="f">Nivel<select id="'+px+'-cnivel">'+nivelOptions(c.cursoNivel,true)+'</select></label><label class="f">Letra del curso<span id="'+px+'-cletraBox">'+letraHTML(px+'-cletra', c.cursoNivel, c.cursoLetra)+'</span></label><div id="'+px+'-cprof" class="p-profwrap" style="grid-column:1 / -1">'+profHint(c.cursoNivel,c.cursoLetra)+'</div></div>'+
   '</fieldset>'+
   '<fieldset><legend>Gestión</legend><div class="grid g2">'+
     '<label class="f">Encargado/a del caso<input type="text" id="'+px+'-enc" list="'+px+'-encl" value="'+esc(c.encargado)+'" placeholder="Nombre o cargo"><datalist id="'+px+'-encl">'+encargadosList().map(e=>'<option value="'+esc(e)+'">').join("")+'</datalist></label>'+
@@ -1188,12 +1331,13 @@ function renderCaseForm(host, caso, onDone, prefill){
     const box=g("personas");
     box.innerHTML = personas.map((p,i)=>
       '<div class="person" data-i="'+i+'">'+
-        '<label class="f p-nombre">Nombre completo<input type="text" id="'+px+'-pn'+i+'" data-k="nombre" value="'+esc(p.nombre)+'" autocomplete="off"></label>'+
-        '<label class="f">Rol<select id="'+px+'-pr'+i+'" data-k="rol">'+optList(ROLES,p.rol)+'</select></label>'+
         '<label class="f">Curso<select id="'+px+'-pc'+i+'" data-k="nivel">'+nivelOptions(p.nivel,true)+'</select></label>'+
-        '<label class="f">Letra<input type="text" id="'+px+'-pl'+i+'" data-k="letra" maxlength="3" value="'+esc(p.letra||"")+'"></label>'+
+        '<label class="f">Letra'+letraHTML(px+'-pl'+i, p.nivel, p.letra, "letra")+'</label>'+
+        '<label class="f p-nombre">Nombre completo<input type="text" id="'+px+'-pn'+i+'" data-k="nombre" value="'+esc(p.nombre)+'" autocomplete="off"'+(listaCurso(p.nivel,p.letra)?' list="'+px+'-al'+i+'" placeholder="Escriba o elija de la lista"':'')+'>'+(listaCurso(p.nivel,p.letra)?'<datalist id="'+px+'-al'+i+'">'+listaCurso(p.nivel,p.letra).alumnos.map(a=>'<option value="'+esc(a)+'">').join("")+'</datalist>':'')+'</label>'+
+        '<label class="f">Rol<select id="'+px+'-pr'+i+'" data-k="rol">'+optList(ROLES,p.rol)+'</select></label>'+
         '<label class="f">Calidad<select id="'+px+'-pq'+i+'" data-k="calidad">'+optList(CALIDADES,p.calidad)+'</select></label>'+
         '<button type="button" class="btn ghost rm" aria-label="Quitar persona" '+(personas.length<2?"disabled":"")+'>✕</button>'+
+        (listaCurso(p.nivel,p.letra)?'<div class="p-profwrap">'+profHint(p.nivel,p.letra)+'</div>':'')+
         '<div class="p-histwrap" id="'+px+'-ph'+i+'"></div>'+
       '</div>').join("") + '<button type="button" class="btn sm" data-add>+ Agregar persona</button>';
     box.querySelectorAll(".person").forEach(row=>{
@@ -1207,7 +1351,12 @@ function renderCaseForm(host, caso, onDone, prefill){
         ph.querySelector(".histbtn").onclick=()=>{ histOpen=!histOpen; showHist(); };
         ph.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openDrawer(b.dataset.open));
       };
-      row.querySelectorAll("[data-k]").forEach(inp=>inp.addEventListener("input",()=>{ personas[i][inp.dataset.k]=inp.value; if(inp.dataset.k==="nombre") showHist(); }));
+      row.querySelectorAll("[data-k]").forEach(inp=>inp.addEventListener("input",()=>{ personas[i][inp.dataset.k]=inp.value; state.formSucio=true; if(inp.dataset.k==="nombre") showHist(); }));
+      // curso -> letra (A/B) -> lista de estudiantes y profesor/a jefe
+      row.querySelector('[data-k="nivel"]').addEventListener("change",ev=>{ const ls=letrasDe(ev.target.value); if(personas[i].letra && ls.length && !ls.includes(String(personas[i].letra).toUpperCase())) personas[i].letra=""; if(ls.length===1 && !personas[i].letra) personas[i].letra=ls[0]; drawPersonas(); const nx=$("#"+px+"-pl"+i); if(nx && !personas[i].letra) nx.focus(); });
+      const le=row.querySelector('[data-k="letra"]'); if(le && le.tagName==="SELECT") le.addEventListener("change",()=>{ drawPersonas(); const nm=$("#"+px+"-pn"+i); if(nm && !personas[i].nombre) nm.focus(); });
+      // nombre que está en alguna lista -> completa curso y letra
+      row.querySelector('[data-k="nombre"]').addEventListener("change",()=>{ const a=alumnoEnListas(personas[i].nombre); if(a && (personas[i].nivel!==a.nivel || String(personas[i].letra).toUpperCase()!==a.letra)){ personas[i].nivel=a.nivel; personas[i].letra=a.letra; personas[i].nombre=a.nombre; if(!personas[i].rol || personas[i].rol==="Estudiante") personas[i].rol="Estudiante"; drawPersonas(); } });
       showHist();
       row.querySelector(".rm").onclick=()=>{ personas.splice(i,1); drawPersonas(); };
     });
@@ -1236,6 +1385,9 @@ function renderCaseForm(host, caso, onDone, prefill){
   g("ing").addEventListener("input",syncDeadline); g("plazo").addEventListener("input",syncDeadline);
   f.querySelectorAll('input[name="'+px+'-modo"]').forEach(r=>r.addEventListener("change",syncModo));
   const cancel=f.querySelector("[data-cancel]"); if(cancel) cancel.onclick=()=>onDone(null);
+  const syncCursoCompleto=()=>{ const n=g("cnivel").value, v=(g("cletra")||{}).value||""; const ls=letrasDe(n); g("cletraBox").innerHTML=letraHTML(px+"-cletra", n, ls.length&&!ls.includes(v.toUpperCase())?(ls.length===1?ls[0]:""):v); g("cletra").addEventListener("change",()=>{ g("cprof").innerHTML=profHint(g("cnivel").value,g("cletra").value); }); g("cprof").innerHTML=profHint(n,g("cletra").value); };
+  g("cnivel").addEventListener("change",syncCursoCompleto);
+  { const cl=g("cletra"); if(cl) cl.addEventListener("change",()=>{ g("cprof").innerHTML=profHint(g("cnivel").value,g("cletra").value); }); }
   drawPersonas(); syncModo(); syncProtoInfo(); syncDeadline();
   if(!edit && c.protocolo && !g("plazo").value){ g("plazo").value=plazoDefault(c.protocolo); syncDeadline(); }
 
@@ -1259,6 +1411,7 @@ function renderCaseForm(host, caso, onDone, prefill){
     if(!(out.plazoDias>0)) miss.push("plazo");
     if(miss.length){ err.textContent="Falta completar: "+miss.join(", ")+"."; return; }
     out.fechaLimite = addBusinessDays(out.fechaIngreso, out.plazoDias + (out.prorroga?PRORROGA:0));
+    { const pj=new Set(); (out.modo==="curso"?[{nivel:out.cursoNivel,letra:out.cursoLetra}]:out.personas).forEach(x=>{ const pr=profesorDe(x.nivel,x.letra); if(pr) pj.add(pr+" ("+cursoLabel(x.nivel,x.letra)+")"); }); out.profesoresJefe=[...pj]; }
     if(!edit || out.protocolo!==caso.protocolo){ out.hitosDef = (PMAP[out.protocolo]?PMAP[out.protocolo].h:[]).map(h=>({t:h.t,d:h.d})); out.hitos = {}; }
     if(!edit){ out.id=uid(); out.folio=nextFolio(out.fechaIngreso); out.creado=new Date().toISOString(); out.estado="abierto"; out.bitacora=[entry("Caso registrado. Protocolo activado: "+protoLabel(out.protocolo)+".")]; if(ME) out.creadoPor=ME;
       if(c._origen){ out.origen=c._origen; out.bitacora.push(entry("Ingresado desde "+c._origen+(c._registradoPor?". Registrado originalmente por "+c._registradoPor:"")+".", out.fechaIngreso)); }
@@ -1307,7 +1460,9 @@ function fichaNormalizar(o){ // objeto crudo (de Word o de código) -> datos del
     const cu=pp.nivel && NMAP[pp.nivel] ? {nivel:pp.nivel, letra:""} : fichaCurso(pp.curso||pp.nivel);
     const letra=String(pp.letra||cu.letra||"").trim().toUpperCase().slice(0,3);
     if((pp.curso||pp.nivel) && !cu.nivel) avisos.push("No se reconoció el curso «"+(pp.curso||pp.nivel)+"» de "+(pp.nombre||"una persona")+".");
-    return {nombre:limpiarHint(pp.nombre), rol:fichaElegir(pp.rol,ROLES,"Estudiante"), nivel:cu.nivel, letra, calidad:fichaElegir(pp.calidad,CALIDADES,"Afectado/a")};
+    const nom=limpiarHint(pp.nombre), en=alumnoEnListas(nom);
+    if(en && (!cu.nivel || (cu.nivel===en.nivel && (!letra || letra===en.letra)))) return {nombre:en.nombre, rol:fichaElegir(pp.rol,ROLES,"Estudiante"), nivel:en.nivel, letra:en.letra, calidad:fichaElegir(pp.calidad,CALIDADES,"Afectado/a")};
+    return {nombre:nom, rol:fichaElegir(pp.rol,ROLES,"Estudiante"), nivel:cu.nivel, letra, calidad:fichaElegir(pp.calidad,CALIDADES,"Afectado/a")};
   }).filter(pp=>pp.nombre||pp.nivel);
   const cc=fichaCurso(o.cursoCompleto||o.cursoNivel);
   if(!out.personas.length && cc.nivel){ out.modo="curso"; out.cursoNivel=cc.nivel; out.cursoLetra=String(o.cursoLetra||cc.letra||"").trim().toUpperCase(); }
@@ -1375,6 +1530,7 @@ function aplicarFicha(r, origen){
 }
 
 function renderNewForm(){
+  state.formSucio=false;
   cargarFichaUI(); $("#fichaMsg").textContent="";
   renderCaseForm($("#newFormHost"), null, c=>{
     if(!c) return;
@@ -1415,6 +1571,7 @@ function renderDrawer(){
         '<dt>Ingreso</dt><dd>'+esc(fechaCorta(c.fechaIngreso))+'</dd>'+
         '<dt>Fecha del hecho</dt><dd>'+esc(fechaCorta(c.fechaHecho))+'</dd>'+
         '<dt>Encargado/a</dt><dd>'+esc(c.encargado)+'</dd>'+
+        ((c.profesoresJefe||[]).length?'<dt>Profesor/a jefe</dt><dd>'+esc(c.profesoresJefe.join(", "))+'</dd>':'')+
         '<dt>Plazo</dt><dd>'+esc(c.plazoDias)+' días hábiles'+(c.prorroga?' + '+PRORROGA+' de prórroga':'')+' · vence '+esc(fechaCorta(c.fechaLimite))+'</dd>'+
         '<dt>Estado</dt><dd>'+esc(ESTADOS[c.estado]||c.estado)+(c.estado==="cerrado"&&c.fechaCierre?' el '+esc(fechaCorta(c.fechaCierre)):'')+'</dd>'+
         (ciclosDe(c).length?'<dt>Ciclo</dt><dd>'+esc(ciclosDe(c).map(k=>CICLOS[k]).join(", "))+'</dd>':'')+
@@ -1871,6 +2028,7 @@ $("#repDl").onclick=descargarInforme;
 $("#autorBtn").onclick=()=>{ if(hayPerfiles()){ if(PERFIL) cerrarSesion(); else elegirPerfil(); } else pedirAutor(); };
 $("#pfRol").addEventListener("change",syncPfCurso);
 $("#pfBulkBtn").onclick=crearPerfilesBulk;
+initCursosUI();
 $("#pfNivel").innerHTML=nivelOptions("",true);
 $("#pfForm").addEventListener("submit", async ev=>{
   ev.preventDefault();
@@ -1921,6 +2079,7 @@ $("#ajBloquear").onclick=()=>{ if(PERFIL && PERFIL.rol==="admin"){ setTab("casos
 function renderAjustes(){
   renderAjLock();
   if(!state.adminOk) return;
+  renderCursosPanel();
   $("#ajBloquear").hidden = !!(PERFIL && PERFIL.rol==="admin");
   renderPerfiles();
   $("#cfgClave2").value="";
