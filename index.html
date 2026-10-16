@@ -310,6 +310,19 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
 .p-profwrap{grid-column:1 / -1}
 .p-prof{font-size:12.5px;color:var(--accent);background:var(--surface);border-radius:999px;padding:3px 10px;display:inline-block}
 .cstable td.num{text-align:right}
+.fichasteps{margin:0 0 10px;padding-left:20px;font-size:13.5px;display:flex;flex-direction:column;gap:3px}
+.fichasteps code{font-family:var(--f-mono);font-size:12px;background:var(--surface);padding:1px 5px;border-radius:4px}
+.adjpend,.adjlist{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.adjpend li{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface-2);border-radius:8px;padding:4px 4px 4px 10px;font-size:13.5px}
+.adjlist li{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface-2);border-radius:9px;padding:8px 10px;font-size:14px}
+.adjico{color:var(--accent);font-size:18px}
+.adjname{flex:1 1 160px;min-width:0;overflow-wrap:anywhere}
+.adjv{position:fixed;inset:0;z-index:90;background:rgba(8,14,28,.98);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.adjv-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:var(--surface);color:var(--ink)}
+.adjv-sub{font-size:13px;color:var(--muted)}
+.adjv-body{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:16px}
+.adjv-body img{max-width:100%;height:auto;background:#fff;border-radius:4px;box-shadow:0 6px 30px rgba(0,0,0,.4)}
+.adjv-msg{color:#fff;margin-top:40px}
 .linkbtn{background:none;border:0;color:var(--head-ink);text-decoration:underline;cursor:pointer;padding:0;font-size:12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion: no-preference){.drawer{animation:slide .22s ease-out}@keyframes slide{from{transform:translateX(30px);opacity:.6}}}
@@ -381,11 +394,12 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
         <div class="row" style="margin-top:10px">
           <label class="btn sm" for="fichaFile" style="cursor:pointer">Subir ficha Word (.docx)</label>
           <input type="file" id="fichaFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
-          <button type="button" class="btn sm" id="fichaCodeBtn">Pegar código de ficha en papel</button>
+          <button type="button" class="btn sm" id="fichaCodeBtn">Ficha escrita a mano</button>
         </div>
         <div id="fichaCodeWrap" hidden style="margin-top:10px">
-          <label class="f">Código de la ficha <span class="hint">Envíe una foto de la ficha en papel a Claude y pegue aquí el código que le entregue.</span><textarea id="fichaCode" rows="4" placeholder='FICHA-CE {"fechaIngreso": "…", …}'></textarea></label>
-          <div class="row" style="margin-top:8px"><button type="button" class="btn primary sm" id="fichaCodeOk">Cargar código</button></div>
+          <ol class="fichasteps"><li>Tome una foto de la ficha y envíesela a Claude en el chat.</li><li>Claude le devuelve un texto que empieza con <code>FICHA-CE</code>. Péguelo aquí.</li><li>Pulse «Cargar datos». Luego, en el formulario, adjunte la foto como respaldo.</li></ol>
+          <label class="f">Texto entregado por Claude<textarea id="fichaCode" rows="4" placeholder='FICHA-CE {"fechaIngreso": "…", …}'></textarea></label>
+          <div class="row" style="margin-top:8px"><button type="button" class="btn primary sm" id="fichaCodeOk">Cargar datos</button></div>
         </div>
         <div id="fichaMsg" class="fichamsg" role="status"></div>
       </div>
@@ -541,6 +555,7 @@ button.hrow{cursor:pointer} button.hrow:hover{background:var(--accent-soft)}
 </main>
 
 <div id="gate" class="gate" hidden></div>
+<div id="adjViewer" class="adjv" hidden role="dialog" aria-modal="true" aria-label="Imagen adjunta"></div>
 <div id="autorDlg" class="gate soft" hidden></div>
 <div id="drawerHost"></div>
 <div id="toastHost"></div>
@@ -1164,6 +1179,101 @@ function initCursosUI(){
   $("#csCancel").onclick=()=>{ cursosPendientes=[]; $("#csPrev").hidden=true; $("#csMsg").textContent=""; };
 }
 
+/* ---------- Imágenes adjuntas (foto de la ficha u otros respaldos) ---------- */
+// La imagen se comprime y se guarda aparte del caso; se descarga solo al pulsar «Ver imagen adjunta».
+const ADJ_MAX = () => state.mode==="db" ? 240000 : 650000; // largo máximo del texto de la imagen
+function comprimirImagen(file){
+  return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file); const img=new Image();
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      let w=img.naturalWidth, h=img.naturalHeight, max=1800, q=0.72, out="";
+      const cv=document.createElement("canvas"), cx=cv.getContext("2d");
+      for(let i=0;i<10;i++){
+        const k=Math.min(1, max/Math.max(w,h)); cv.width=Math.round(w*k); cv.height=Math.round(h*k);
+        cx.fillStyle="#fff"; cx.fillRect(0,0,cv.width,cv.height); cx.drawImage(img,0,0,cv.width,cv.height);
+        out=cv.toDataURL("image/jpeg", q);
+        if(out.length<=ADJ_MAX()) return res({dataUrl:out, ancho:cv.width, alto:cv.height});
+        if(q>0.45) q-=0.1; else max=Math.round(max*0.8);
+      }
+      rej(new Error("grande"));
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error("formato")); };
+    img.src=url;
+  });
+}
+async function guardarAdjunto(id, data){
+  if(state.mode==="fb") return BASE.collection("adjuntos").doc(id).set(data);
+  if(state.mode==="db") return DB.doc("adjuntos/"+id).set(data);
+  const all=lsGet("convivencia-adjuntos-v1",{}); all[id]=data; localStorage.setItem("convivencia-adjuntos-v1", JSON.stringify(all));
+}
+async function leerAdjunto(id){
+  if(state.mode==="fb"){ const s=await BASE.collection("adjuntos").doc(id).get(); return s.exists?s.data():null; }
+  if(state.mode==="db"){ const s=await DB.doc("adjuntos/"+id).get(); return s.exists?s.data():null; }
+  return (lsGet("convivencia-adjuntos-v1",{})||{})[id]||null;
+}
+async function borrarAdjunto(id){
+  try{
+    if(state.mode==="fb") return await BASE.collection("adjuntos").doc(id).delete();
+    if(state.mode==="db") return await DB.doc("adjuntos/"+id).delete();
+    const all=lsGet("convivencia-adjuntos-v1",{}); delete all[id]; localStorage.setItem("convivencia-adjuntos-v1", JSON.stringify(all));
+  }catch(e){}
+}
+// Comprime y guarda las imágenes; devuelve la lista de datos para el caso.
+async function subirAdjuntos(casoId, files, descripcion){
+  const metas=[];
+  for(const f of files){
+    const r=await comprimirImagen(f);
+    const id=casoId+"_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    await guardarAdjunto(id, {casoId, dataUrl:r.dataUrl, nombre:f.name, fecha:today(), por:ME||""});
+    metas.push({id, nombre:descripcion||f.name, fecha:today(), por:ME||"", ancho:r.ancho, alto:r.alto});
+  }
+  return metas;
+}
+async function verAdjunto(meta){
+  const host=$("#adjViewer"); host.hidden=false;
+  host.innerHTML='<div class="adjv-bar"><strong>'+esc(meta.nombre||"Imagen adjunta")+'</strong><span class="adjv-sub">'+esc(fechaCorta(meta.fecha))+'</span><span style="flex:1"></span><button class="btn sm" id="adjDl" type="button" hidden>Descargar</button><button class="btn sm" id="adjClose" type="button">Cerrar ✕</button></div><div class="adjv-body"><p class="adjv-msg">Cargando imagen…</p></div>';
+  const close=()=>{ host.hidden=true; host.innerHTML=""; document.removeEventListener("keydown",esc_); };
+  const esc_=e=>{ if(e.key==="Escape"){ e.stopPropagation(); close(); } };
+  document.addEventListener("keydown",esc_);
+  $("#adjClose").onclick=close;
+  try{
+    const d=await leerAdjunto(meta.id);
+    if(!d||!d.dataUrl){ host.querySelector(".adjv-body").innerHTML='<p class="adjv-msg">No se encontró la imagen. Puede que haya sido quitada.</p>'; return; }
+    host.querySelector(".adjv-body").innerHTML='<img alt="'+esc(meta.nombre||"Imagen adjunta")+'" src="'+d.dataUrl+'">';
+    const dl=$("#adjDl"); dl.hidden=!canDL();
+    dl.onclick=async()=>{ const b=await (await fetch(d.dataUrl)).blob(); try{ await saveFile((meta.nombre||"imagen").replace(/\.[a-z0-9]+$/i,"")+".jpg", b, "image/jpeg"); }catch(e){} };
+  }catch(e){ host.querySelector(".adjv-body").innerHTML='<p class="adjv-msg">No se pudo cargar la imagen. Revise su conexión.</p>'; }
+}
+function adjuntosHTML(c){
+  const as=c.adjuntos||[];
+  return '<div class="panel"><h2 style="font-size:17px;margin-bottom:4px">Imágenes adjuntas</h2><p class="muted" style="margin:0 0 12px;font-size:12.5px">Foto de la ficha escrita a mano u otros respaldos del caso.</p>'+
+    (as.length?'<ul class="adjlist">'+as.map(a=>'<li><span class="adjico" aria-hidden="true">▣</span><span class="adjname"><strong>'+esc(a.nombre||"Imagen")+'</strong><span class="hsub">'+esc(fechaCorta(a.fecha))+(a.por?' · '+esc(a.por):'')+'</span></span><button class="btn sm" type="button" data-adjver="'+esc(a.id)+'">Ver imagen adjunta</button>'+(can("editar")?'<button class="btn sm ghost" style="color:var(--danger)" type="button" data-adjdel="'+esc(a.id)+'">Quitar</button>':'')+'</li>').join("")+'</ul>':'<p class="muted" style="margin:0 0 10px">Este caso no tiene imágenes adjuntas.</p>')+
+    (can("editar")?'<label class="btn sm" for="d-adjfile" style="cursor:pointer;margin-top:4px">+ Adjuntar imagen</label><input type="file" id="d-adjfile" accept="image/*" multiple hidden><span class="muted" id="d-adjmsg" style="font-size:13px;margin-left:8px"></span>':'')+
+  '</div>';
+}
+function bindAdjuntos(host, c){
+  host.querySelectorAll("[data-adjver]").forEach(b=>b.onclick=()=>verAdjunto((c.adjuntos||[]).find(a=>a.id===b.dataset.adjver)));
+  host.querySelectorAll("[data-adjdel]").forEach(b=>b.onclick=async()=>{
+    if(b.dataset.confirm!=="1"){ b.dataset.confirm="1"; b.textContent="¿Quitar? Toque de nuevo"; return; }
+    const a=(c.adjuntos||[]).find(x=>x.id===b.dataset.adjdel);
+    const n=JSON.parse(JSON.stringify(c)); n.adjuntos=(n.adjuntos||[]).filter(x=>x.id!==b.dataset.adjdel);
+    n.bitacora=(n.bitacora||[]).concat([entry("Se quitó la imagen adjunta «"+(a&&a.nombre||"imagen")+"».")]);
+    if(await saveCaso(n)){ await borrarAdjunto(b.dataset.adjdel); toast("Imagen quitada"); renderDrawer(); }
+  });
+  const inp=host.querySelector("#d-adjfile");
+  if(inp) inp.onchange=async ev=>{
+    const files=[...ev.target.files]; ev.target.value=""; if(!files.length) return;
+    const msg=host.querySelector("#d-adjmsg"); msg.textContent="Subiendo…";
+    try{
+      const metas=await subirAdjuntos(c.id, files);
+      const n=JSON.parse(JSON.stringify(c)); n.adjuntos=(n.adjuntos||[]).concat(metas);
+      n.bitacora=(n.bitacora||[]).concat([entry(metas.length===1?"Se adjuntó la imagen «"+metas[0].nombre+"».":"Se adjuntaron "+metas.length+" imágenes.")]);
+      if(await saveCaso(n)){ toast(metas.length===1?"Imagen adjuntada":"Imágenes adjuntadas"); renderDrawer(); }
+    }catch(e){ msg.textContent = e.message==="formato" ? "Ese archivo no es una imagen (use JPG o PNG)." : e.message==="grande" ? "La imagen es demasiado grande." : "No se pudo subir la imagen."; }
+  };
+}
+
 /* ---------- Almacenamiento ---------- */
 const LS_KEY="convivencia-casos-v1", LS_CFG="convivencia-config-v1";
 function lsGet(k,f){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):f; }catch(e){ return f; } }
@@ -1214,6 +1324,7 @@ async function saveCaso(c){
 }
 async function deleteCaso(id){
   if(state.demo){ toast("Los casos de ejemplo no se pueden eliminar."); return false; }
+  { const c=state.casos.find(x=>x.id===id); (c&&c.adjuntos||[]).forEach(a=>borrarAdjunto(a.id)); }
   if(state.mode==="fb"){ try{ await BASE.collection("casos").doc(id).delete(); return true; }catch(e){ toast("No se pudo eliminar el caso."); return false; } }
   if(state.mode==="db"){ try{ await DB.doc("casos/"+id).delete(); return true; }catch(e){ toast("No se pudo eliminar el caso."); return false; } }
   state.casos=state.casos.filter(c=>c.id!==id); lsSet(LS_KEY,state.casos); renderAll(); return true;
@@ -1348,6 +1459,7 @@ function renderCaseForm(host, caso, onDone, prefill){
     '<div id="'+px+'-personas"></div>'+
     '<div id="'+px+'-curso" class="grid g2" hidden><label class="f">Nivel<select id="'+px+'-cnivel">'+nivelOptions(c.cursoNivel,true)+'</select></label><label class="f">Letra del curso<span id="'+px+'-cletraBox">'+letraHTML(px+'-cletra', c.cursoNivel, c.cursoLetra)+'</span></label><div id="'+px+'-cprof" class="p-profwrap" style="grid-column:1 / -1">'+profHint(c.cursoNivel,c.cursoLetra)+'</div></div>'+
   '</fieldset>'+
+  (edit?'':'<fieldset><legend>Imágenes adjuntas <span class="muted" style="font-weight:400;font-size:13px">(opcional)</span></legend><p class="muted" style="margin:0 0 8px;font-size:13px">Por ejemplo, la foto de la ficha escrita a mano.</p><label class="btn sm" for="'+px+'-adj" style="cursor:pointer">+ Adjuntar imagen</label><input type="file" id="'+px+'-adj" accept="image/*" multiple hidden><ul class="adjpend" id="'+px+'-adjlist"></ul></fieldset>')+
   '<fieldset><legend>Gestión</legend><div class="grid g2">'+
     '<label class="f">Encargado/a del caso<input type="text" id="'+px+'-enc" list="'+px+'-encl" value="'+esc(c.encargado)+'" placeholder="Nombre o cargo"><datalist id="'+px+'-encl">'+encargadosList().map(e=>'<option value="'+esc(e)+'">').join("")+'</datalist></label>'+
     '<label class="f">Plazo de resolución<span class="hint">Días hábiles desde la fecha de ingreso</span><input type="number" id="'+px+'-plazo" min="1" max="120" value="'+esc(c.plazoDias)+'"></label>'+
@@ -1421,6 +1533,9 @@ function renderCaseForm(host, caso, onDone, prefill){
   const syncCursoCompleto=()=>{ const n=g("cnivel").value, v=(g("cletra")||{}).value||""; const ls=letrasDe(n); g("cletraBox").innerHTML=letraHTML(px+"-cletra", n, ls.length&&!ls.includes(v.toUpperCase())?(ls.length===1?ls[0]:""):v); g("cletra").addEventListener("change",()=>{ g("cprof").innerHTML=profHint(g("cnivel").value,g("cletra").value); }); g("cprof").innerHTML=profHint(n,g("cletra").value); };
   g("cnivel").addEventListener("change",syncCursoCompleto);
   { const cl=g("cletra"); if(cl) cl.addEventListener("change",()=>{ g("cprof").innerHTML=profHint(g("cnivel").value,g("cletra").value); }); }
+  let adjPend=[];
+  const drawAdjPend=()=>{ const ul=g("adjlist"); if(!ul) return; ul.innerHTML=adjPend.map((f,i)=>'<li><span>▣ '+esc(f.name)+'</span><button type="button" class="btn sm ghost" data-rmadj="'+i+'">Quitar</button></li>').join(""); ul.querySelectorAll("[data-rmadj]").forEach(b=>b.onclick=()=>{ adjPend.splice(+b.dataset.rmadj,1); drawAdjPend(); }); };
+  if(g("adj")) g("adj").onchange=ev=>{ adjPend=adjPend.concat([...ev.target.files].filter(f=>/^image\//.test(f.type))); ev.target.value=""; drawAdjPend(); };
   drawPersonas(); syncModo(); syncProtoInfo(); syncDeadline();
   if(!edit && c.protocolo && !g("plazo").value){ g("plazo").value=plazoDefault(c.protocolo); syncDeadline(); }
 
@@ -1453,6 +1568,12 @@ function renderCaseForm(host, caso, onDone, prefill){
       out.bitacora=(out.bitacora||[]).concat([entry("Se editaron los datos del caso"+(cambios.length?": "+cambios.join(", "):"")+".")]); }
     ["_origen","_registradoPor","_acciones"].forEach(k=>delete out[k]);
     const ok=await saveCaso(out);
+    if(ok && !edit && adjPend.length){
+      try{ const metas=await subirAdjuntos(out.id, adjPend, c._origen==="ficha escrita a mano"?"Foto de la ficha escrita a mano":null);
+        const n=JSON.parse(JSON.stringify(out)); n.adjuntos=metas; n.bitacora=(n.bitacora||[]).concat([entry(metas.length===1?"Se adjuntó la imagen «"+metas[0].nombre+"».":"Se adjuntaron "+metas.length+" imágenes.")]);
+        await saveCaso(n); Object.assign(out,n);
+      }catch(e){ toast("El caso se registró, pero no se pudo adjuntar la imagen. Adjúntela desde la ficha del caso."); }
+    }
     if(ok) onDone(out);
   });
 }
@@ -1551,8 +1672,8 @@ function cargarFichaUI(){
   };
   $("#fichaCodeBtn").onclick=()=>{ $("#fichaCodeWrap").hidden=!$("#fichaCodeWrap").hidden; if(!$("#fichaCodeWrap").hidden) $("#fichaCode").focus(); };
   $("#fichaCodeOk").onclick=()=>{
-    try{ aplicarFicha(leerFichaCodigo($("#fichaCode").value), "Ficha en papel"); $("#fichaCode").value=""; $("#fichaCodeWrap").hidden=true; }
-    catch(e){ $("#fichaMsg").textContent="El código no es válido. Cópielo completo, desde la primera { hasta la última }."; }
+    try{ aplicarFicha(leerFichaCodigo($("#fichaCode").value), "ficha escrita a mano"); $("#fichaCode").value=""; $("#fichaCodeWrap").hidden=true; }
+    catch(e){ $("#fichaMsg").textContent="El texto no es válido. Cópielo completo, desde la primera { hasta la última }."; }
   };
 }
 function aplicarFicha(r, origen){
@@ -1643,6 +1764,7 @@ function renderDrawer(){
         '<label class="f" id="d-resWrap" style="margin-top:10px"'+(c.estado==="cerrado"?"":" hidden")+'>Resolución y medidas adoptadas<textarea id="d-res">'+esc(c.resolucion||"")+'</textarea></label>'+
         '<div class="form-actions" style="margin-top:12px;border:0;padding-top:0"><button class="btn primary sm" id="d-saveEstado">Guardar estado</button></div>'+
       '</div>'+
+      adjuntosHTML(c)+
       '<div class="panel"><h2 style="font-size:17px;margin-bottom:4px">Bitácora de seguimiento</h2><p class="muted" style="margin:0 0 10px;font-size:12.5px">Cada acción queda con la fecha y la persona del equipo que la registró.</p>'+
         (log.length?'<ul class="log">'+log.map(l=>'<li><time>'+esc(fechaCorta(l.fecha))+'</time><p>'+esc(l.texto)+(l.por?'<span class="by">'+whoSpan(l.por)+'</span>':'')+'</p></li>').join("")+'</ul>':'<p class="muted" style="margin-top:0">Aún no hay registros.</p>')+
         '<div class="row"><label class="f" style="flex:0 1 150px">Fecha<input type="date" id="d-lfecha" value="'+today()+'"></label><label class="f" style="flex:1 1 240px">Nueva acción<input type="text" id="d-ltexto" placeholder="Ej.: Derivación a OPD, oficio N° 123"></label><button class="btn sm" id="d-ladd" style="min-height:40px">Agregar</button></div>'+
@@ -1700,6 +1822,7 @@ function renderDrawer(){
     else if(n.estado==="cerrado" && n.resolucion!==(c.resolucion||"")){ n.bitacora=(n.bitacora||[]).concat([entry("Se actualizó la resolución del caso.")]); }
     if(await saveCaso(n)){ toast("Estado actualizado"); renderDrawer(); }
   };
+  bindAdjuntos(host, c);
   host.querySelector("#d-ladd").onclick=async()=>{
     const t=host.querySelector("#d-ltexto").value.trim(); if(!t){ host.querySelector("#d-ltexto").focus(); return; }
     const n=JSON.parse(JSON.stringify(c)); n.bitacora=(n.bitacora||[]).concat([entry(t, host.querySelector("#d-lfecha").value||today())]);
